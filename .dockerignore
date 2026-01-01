@@ -1,0 +1,14 @@
+.gradle
+build
+out
+bin
+*.iml
+.idea
+.vscode
+
+# OS
+.DS_Store
+Thumbs.db
+
+# compose volume (로컬 바인드 쓰면 생길 수 있음)
+db_data
