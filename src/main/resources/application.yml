@@ -18,3 +18,7 @@ spring:
 
 server:
   port: 8080
+jwt:
+  secret: "CamNecTsecretKey1234CamNecTsecretKey1234CamNecTsecretKey1234CamNecTsecretKey1234"
+  access-token-expiration-ms: 360000        # 6min
+  refresh-token-expiration-ms: 1209600000   # 14day
