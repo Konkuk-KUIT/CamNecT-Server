@@ -10,6 +10,8 @@ import CamNecT.server.domain.community.model.Comments.Comments;
 import CamNecT.server.domain.community.model.Posts.PostStats;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.CommentStatus;
+import CamNecT.server.domain.community.model.enums.PostStatus;
+import CamNecT.server.domain.community.repository.Comments.AcceptedCommentsRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentLikesRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostStatsRepository;
@@ -27,6 +29,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -39,6 +42,7 @@ public class CommentServiceImpl implements CommentService {
     private final PostStatsRepository postStatsRepository;
     private final CommentLikesRepository commentLikesRepository;
     private final UserRepository userRepository;
+    private final AcceptedCommentsRepository acceptedCommentsRepository;
     private final AuthorAssembler  authorAssembler;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -47,21 +51,23 @@ public class CommentServiceImpl implements CommentService {
     public CreateCommentResponse create(Long userId, Long postId, CreateCommentRequest req) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
-        Posts post = postsRepository.findById(postId)
+        Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
+
+        requirePublished(post);
 
         Comments parent = null;
         if (req.parentCommentId() != null) {
-            parent = commentsRepository.findById(req.parentCommentId())
+            parent = commentsRepository.findByIdForUpdate(req.parentCommentId())
                     .orElseThrow(() -> new CustomException(CommunityErrorCode.PARENT_COMMENT_NOT_FOUND));
 
             if (!Objects.equals(parent.getPost().getId(), postId)) {
                 throw new CustomException(CommunityErrorCode.PARENT_COMMENT_NOT_IN_POST);
             }
 
-            // 부모가 삭제/숨김이면 자식 댓글 추가 불가
-            if (parent.getStatus() == CommentStatus.DELETED || parent.getStatus() == CommentStatus.HIDDEN) {
-                throw new CustomException(CommunityErrorCode.CANNOT_REPLY_TO_DELETED_OR_HIDDEN);
+            // 삭제 댓글은 대화 맥락 유지를 위해 답글을 허용하고, 숨김 댓글만 차단한다.
+            if (parent.getStatus() == CommentStatus.HIDDEN) {
+                throw new CustomException(CommunityErrorCode.CANNOT_REPLY_TO_HIDDEN_COMMENT);
             }
 
             // 2뎁스 제한: 부모가 이미 대댓글이면 금지
@@ -72,7 +78,7 @@ public class CommentServiceImpl implements CommentService {
 
         Comments saved = commentsRepository.save(Comments.create(post, userId, parent, req.content()));
 
-        PostStats stats = postStatsRepository.findByPost_Id(postId)
+        PostStats stats = postStatsRepository.findByPostIdForUpdate(postId)
                 .orElseGet(() -> postStatsRepository.save(PostStats.init(post)));
 
         /// 스탯 관련 조치
@@ -114,15 +120,21 @@ public class CommentServiceImpl implements CommentService {
     public void update(Long userId, Long commentId, UpdateCommentRequest req) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
-        Comments comment = commentsRepository.findById(commentId)
+        Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
+
+        requirePublished(comment.getPost());
+        requirePublished(comment);
 
         if (!Objects.equals(comment.getUserId(), userId)) {
             throw new CustomException(CommunityErrorCode.COMMENT_FORBIDDEN);
         }
+        if (acceptedCommentsRepository.existsByComment_Id(commentId)) {
+            throw new CustomException(CommunityErrorCode.CANNOT_MODIFY_ACCEPTED_COMMENT);
+        }
 
         comment.update(req.content());
-        postStatsRepository.findByPost_Id(comment.getPost().getId()).ifPresent(PostStats::touch);
+        touchStats(comment.getPost().getId());
     }
 
     @Transactional
@@ -130,25 +142,28 @@ public class CommentServiceImpl implements CommentService {
     public void delete(Long userId, Long commentId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
-        Comments comment = commentsRepository.findById(commentId)
+        Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
 
-        // 작성자 또는 관리자만 삭제 가능
+        requirePublished(comment.getPost());
+        requirePublished(comment);
+
         boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
         boolean isOwner = Objects.equals(comment.getUserId(), userId);
 
+        //작성자 또는 관리자만 삭제 가능
         if (!(isAdmin || isOwner)) {
             throw new CustomException(CommunityErrorCode.COMMENT_FORBIDDEN);
         }
-
-        // 중복 삭제 방지 (카운트 두 번 깎이는 거 방지)
-        if (comment.getStatus() == CommentStatus.DELETED) return;
+        if (acceptedCommentsRepository.existsByComment_Id(commentId)) {
+            throw new CustomException(CommunityErrorCode.CANNOT_MODIFY_ACCEPTED_COMMENT);
+        }
 
         boolean isRoot = (comment.getParent() == null);
 
         comment.deleteSoft();
 
-        PostStats stats = postStatsRepository.findByPost_Id(comment.getPost().getId())
+        PostStats stats = postStatsRepository.findByPostIdForUpdate(comment.getPost().getId())
                 .orElseGet(() -> postStatsRepository.save(PostStats.init(comment.getPost())));
 
         stats.decComment();
@@ -161,8 +176,11 @@ public class CommentServiceImpl implements CommentService {
     public ToggleCommentLikeResponse toggleLike(Long userId, Long commentId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
-        Comments comment = commentsRepository.findById(commentId)
+        Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
+
+        requirePublished(comment.getPost());
+        requirePublished(comment);
 
         boolean liked;
         if (commentLikesRepository.existsByComment_IdAndUserId(commentId, userId)) {
@@ -176,7 +194,7 @@ public class CommentServiceImpl implements CommentService {
         long likeCount = commentLikesRepository.countByComment_Id(commentId);
 
         // (선택) 댓글에 추천이 찍히면 게시글도 “활동”으로 취급하고 싶을 때
-        postStatsRepository.findByPost_Id(comment.getPost().getId()).ifPresent(PostStats::touch);
+        touchStats(comment.getPost().getId());
 
         return new ToggleCommentLikeResponse(liked, likeCount);
     }
@@ -184,9 +202,9 @@ public class CommentServiceImpl implements CommentService {
     @Transactional(readOnly = true)
     @Override
     public List<CommentRow> list(Long postId, int size) {
-        if (!postsRepository.existsById(postId)) {
-            throw new CustomException(CommunityErrorCode.POST_NOT_FOUND);
-        }
+        Posts post = postsRepository.findByIdForRead(postId)
+                .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
+        requirePublished(post);
 
         int limit = Math.clamp(size, 1, 50);
         var pageable = PageRequest.of(0, limit);
@@ -267,7 +285,7 @@ public class CommentServiceImpl implements CommentService {
     }
 
     private CommentRow toRow(Comments c, long likeCount, Map<Long, AuthorDto> authorMap) {
-        boolean deleted = (c.getStatus() == CommentStatus.DELETED);
+        boolean deleted = c.getStatus().isDeleted();
         String content = deleted ? "삭제된 댓글입니다." : c.getContent();
         Long parentId = (c.getParent() == null) ? null : c.getParent().getId();
 
@@ -281,5 +299,21 @@ public class CommentServiceImpl implements CommentService {
                 likeCount,
                 author
         );
+    }
+
+    private void requirePublished(Posts post) {
+        if (!post.getStatus().isPublished()) {
+            throw new CustomException(CommunityErrorCode.POST_NOT_PUBLISHED);
+        }
+    }
+
+    private void requirePublished(Comments comment) {
+        if (!comment.getStatus().isPublished()) {
+            throw new CustomException(CommunityErrorCode.COMMENT_NOT_PUBLISHED);
+        }
+    }
+
+    private void touchStats(Long postId) {
+        postStatsRepository.touchByPostId(postId, LocalDateTime.now());
     }
 }

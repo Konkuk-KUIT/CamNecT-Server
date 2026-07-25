@@ -44,13 +44,13 @@ public class PostAttachmentDownloadService {
         Posts post = postsRepository.findById(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
-        if (post.getStatus() != PostStatus.PUBLISHED) {
+        if (!post.getStatus().isPublished()) {
             throw new CustomException(CommunityErrorCode.POST_NOT_PUBLISHED);
         }
 
         ContentAccessStatus access = computeAccessStatus(userId, postId, post);
 
-        if (access != ContentAccessStatus.GRANTED) {
+        if (!access.canReadProtectedContent()) {
             throw new CustomException(CommunityErrorCode.POST_FORBIDDEN);
         }
 

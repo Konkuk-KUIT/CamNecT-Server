@@ -38,8 +38,6 @@ public class PostQueryServiceImpl implements PostQueryService {
 
         Long cv = cursorValue;
         if (cv == null && cursorId != null && sort != Sort.LATEST) {
-
-            // cursorId 자체가 존재하는지 먼저 확인하고 싶으면(선택)
             if (!postsRepository.existsById(cursorId)) {
                 throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
             }
@@ -49,9 +47,9 @@ public class PostQueryServiceImpl implements PostQueryService {
 
             cv = switch (sort) {
                 case RECOMMENDED -> ps.getHotScore();
-                case LIKE        -> ps.getLikeCount();
-                case BOOKMARK    -> ps.getBookmarkCount();
-                default -> throw new CustomException(ErrorCode.INTERNAL_ERROR); // 사실상 불가
+                case LIKE -> ps.getLikeCount();
+                case BOOKMARK -> ps.getBookmarkCount();
+                default -> throw new CustomException(ErrorCode.INTERNAL_ERROR);
             };
         }
 
@@ -119,7 +117,14 @@ public class PostQueryServiceImpl implements PostQueryService {
     private static String normalizeKeyword(String keyword) {
         if (keyword == null) return null;
         String t = keyword.trim();
-        return t.isBlank() ? null : t;
+        if (t.isBlank()) return null;
+        if (t.length() > CamNecT.server.domain.community.dto.request.CommunityRequestLimits.MAX_SEARCH_KEYWORD_LENGTH
+                || t.chars().anyMatch(Character::isISOControl)) {
+            throw new CustomException(CommunityErrorCode.INVALID_SEARCH_KEYWORD);
+        }
+        return t.replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_");
     }
 
     private static BoardCode toBoardCode(Tab tab) {

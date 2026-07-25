@@ -23,6 +23,8 @@ public enum StorageErrorCode implements BaseErrorCode {
     UPLOAD_TICKET_MISMATCHED_OBJECT(HttpStatus.BAD_REQUEST, 49011, "업로드된 파일 정보가 티켓 정보와 일치하지 않습니다."),
 
     EMPTY_FILE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, 49020, "빈 파일은 업로드가 허가되지 않습니다."),
+    INVALID_ATTACHMENT_METADATA(HttpStatus.BAD_REQUEST, 49021, "첨부파일 메타데이터가 올바르지 않습니다."),
+    DUPLICATE_ATTACHMENT_KEY(HttpStatus.BAD_REQUEST, 49022, "중복된 첨부파일 키가 포함되어 있습니다."),
     // 491xx - 인증/토큰
 
 

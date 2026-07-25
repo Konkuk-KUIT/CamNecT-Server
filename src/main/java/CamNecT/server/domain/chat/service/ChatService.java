@@ -3,6 +3,7 @@ package CamNecT.server.domain.chat.service;
 
 import CamNecT.server.domain.activity.model.recruitment.TeamRecruitment;
 import CamNecT.server.domain.activity.repository.recruitment.TeamRecruitmentRepository;
+import CamNecT.server.domain.alumni.dto.ProfileCardDto;
 import CamNecT.server.domain.chat.dto.message.ChatMessageAckResponseDto;
 import CamNecT.server.domain.chat.dto.message.ChatMessageResponseDto;
 import CamNecT.server.domain.chat.dto.message.ChatMessageSendRequestDto;
@@ -593,15 +594,36 @@ public class ChatService {
                 userId, ChatRequest.RequestType.COFFEE_CHAT, limit
         );
         if (inbox.pendingCount() == 0) return HomeResponse.CoffeeChatSection.empty();
+        if (inbox.requests().isEmpty()) {
+            return new HomeResponse.CoffeeChatSection(inbox.pendingCount(), List.of());
+        }
 
-        List<HomeResponse.CoffeeChatSection.CoffeeChatPreview> previews = inbox.previews().stream()
-                .map(preview -> new HomeResponse.CoffeeChatSection.CoffeeChatPreview(
-                        preview.requestId(),
-                        preview.senderUserId(),
-                        preview.senderName(),
-                        preview.majorName(),
-                        preview.studentNo()
-                ))
+        List<Long> senderIds = inbox.requests().stream()
+                .map(cr -> cr.getRequester().getUserId())
+                .distinct().toList();
+
+        Map<Long, ProfileGlobalDto> globalMap =
+                userProfileRepository.findGlobalsByUserIdIn(senderIds).stream()
+                        .collect(Collectors.toMap(ProfileGlobalDto::userId, it -> it));
+
+        List<HomeResponse.CoffeeChatSection.CoffeeChatPreview> previews = inbox.requests().stream()
+                .map(cr -> {
+                    Users sender = cr.getRequester();
+                    ProfileGlobalDto profile = globalMap.get(sender.getUserId());
+
+                    String majorName = profile != null ? profile.majorName() : null;
+                    String studentNo = profile != null && StringUtils.hasText(profile.studentNo())
+                            ? profile.studentNo()
+                            : null;
+
+                    return new HomeResponse.CoffeeChatSection.CoffeeChatPreview(
+                            cr.getId(),
+                            sender.getUserId(),
+                            sender.getName(),
+                            majorName,
+                            studentNo
+                    );
+                })
                 .toList();
 
         return new HomeResponse.CoffeeChatSection(inbox.pendingCount(), previews);
@@ -614,15 +636,53 @@ public class ChatService {
                 userId, ChatRequest.RequestType.TEAM_RECRUIT, limit
         );
         if (inbox.pendingCount() == 0) return HomeResponse.RecruitmentSection.empty();
+        if (inbox.requests().isEmpty()) {
+            return new HomeResponse.RecruitmentSection(inbox.pendingCount(), List.of());
+        }
 
-        List<HomeResponse.RecruitmentSection.RecruitmentPreview> previews = inbox.previews().stream()
-                .map(preview -> new HomeResponse.RecruitmentSection.RecruitmentPreview(
-                        preview.requestId(),
-                        preview.senderUserId(),
-                        preview.senderName(),
-                        preview.majorName(),
-                        preview.studentNo()
-                ))
+        List<Long> senderIds = inbox.requests().stream()
+                .map(cr -> cr.getRequester().getUserId())
+                .distinct().toList();
+
+        Map<Long, UserProfile> profileMap = userProfileRepository.findAllByUserIdInWithUser(senderIds).stream()
+                .collect(Collectors.toMap(UserProfile::getUserId, profile -> profile));
+
+        List<Long> majorIds = profileMap.values().stream()
+                .map(UserProfile::getMajorId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, String> majorNameMap = majorIds.isEmpty()
+                ? Map.of()
+                : majorRepository.findAllById(majorIds).stream()
+                        .collect(Collectors.toMap(Majors::getMajorId, Majors::getMajorNameKor));
+
+        Map<Long, List<String>> tagMap = userTagMapRepository.findTagNamesWithUserIdByUserIdIn(senderIds).stream()
+                .collect(Collectors.groupingBy(
+                        row -> (Long) row[0],
+                        Collectors.mapping(row -> (String) row[1], Collectors.toList())
+                ));
+
+        List<HomeResponse.RecruitmentSection.RecruitmentPreview> previews = inbox.requests().stream()
+                .map(request -> {
+                    Long senderId = request.getRequester().getUserId();
+                    UserProfile profile = profileMap.get(senderId);
+                    if (profile == null || profile.getUser() == null) return null;
+
+                    String profileImageUrl = StringUtils.hasText(profile.getProfileImageKey())
+                            ? publicUrlIssuer.issuePublicUrl(profile.getProfileImageKey())
+                            : null;
+
+                    return new HomeResponse.RecruitmentSection.RecruitmentPreview(
+                            senderId,
+                            profile.getUser().getName(),
+                            majorNameMap.get(profile.getMajorId()),
+                            ProfileCardDto.createCard(profile, profileImageUrl),
+                            tagMap.getOrDefault(senderId, List.of()),
+                            request.getId()
+                    );
+                })
+                .filter(Objects::nonNull)
                 .toList();
 
         return new HomeResponse.RecruitmentSection(inbox.pendingCount(), previews);
@@ -639,48 +699,14 @@ public class ChatService {
         );
         if (latest.isEmpty()) return new HomeRequestInbox(pendingCount, List.of());
 
-        List<Long> senderIds = latest.stream()
-                .map(cr -> cr.getRequester().getUserId())
-                .distinct().toList();
-
-        Map<Long, ProfileGlobalDto> globalMap =
-                userProfileRepository.findGlobalsByUserIdIn(senderIds).stream()
-                        .collect(Collectors.toMap(ProfileGlobalDto::userId, it -> it));
-
-        List<HomeRequestPreview> previews = latest.stream()
-                .map(cr -> {
-                    Users sender = cr.getRequester();
-                    ProfileGlobalDto g = globalMap.get(sender.getUserId());
-
-                    String majorName = (g != null ? g.majorName() : null);
-                    String studentNo = (g != null && StringUtils.hasText(g.studentNo()) ? g.studentNo() : null);
-
-                    return new HomeRequestPreview(
-                            cr.getId(),
-                            sender.getUserId(),
-                            sender.getName(),
-                            majorName,
-                            studentNo
-                    );
-                })
-                .toList();
-
-        return new HomeRequestInbox(pendingCount, previews);
+        return new HomeRequestInbox(pendingCount, latest);
     }
 
-    private record HomeRequestInbox(long pendingCount, List<HomeRequestPreview> previews) {
+    private record HomeRequestInbox(long pendingCount, List<ChatRequest> requests) {
         private static HomeRequestInbox empty() {
             return new HomeRequestInbox(0, List.of());
         }
     }
-
-    private record HomeRequestPreview(
-            Long requestId,
-            Long senderUserId,
-            String senderName,
-            String majorName,
-            String studentNo
-    ) {}
 
     @Transactional
     public void rejectAllCoffeeChatRequests(Long userId, ChatRequest.RequestType requestType) {

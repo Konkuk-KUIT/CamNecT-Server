@@ -72,6 +72,7 @@ public class PostSummaryAssembler {
 
         // author bulk
         List<Long> authorIds = posts.stream()
+                .filter(p -> !p.isAnonymous())
                 .map(p -> p.getUser().getUserId())
                 .filter(Objects::nonNull)
                 .distinct()
@@ -126,15 +127,17 @@ public class PostSummaryAssembler {
                         : ContentAccessStatus.INSUFFICIENT_POINTS;
             }
 
-            String preview = (accessStatus == ContentAccessStatus.GRANTED)
+            String preview = accessStatus.canReadProtectedContent()
                     ? makePreview(p.getContent(), MAX_CONTENT)
                     : null;
 
             String thumbUrl = null;
             String thumbKey = thumbKeyMap.get(p.getId());
-            if (!paywalled) thumbUrl = publicUrlIssuer.issueImagePublicUrl(thumbKey);
+            if (accessStatus.canReadProtectedContent()) {
+                thumbUrl = publicUrlIssuer.issueImagePublicUrl(thumbKey);
+            }
 
-            AuthorDto author = authorMap.get(p.getUser().getUserId());
+            AuthorDto author = p.isAnonymous() ? null : authorMap.get(p.getUser().getUserId());
 
             items.add(new PostSummaryResponse(
                     p.getId(),

@@ -6,10 +6,12 @@ import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.BaseErrorCode;
 import CamNecT.server.global.common.response.ErrorResponse;
 import CamNecT.server.global.common.response.InvalidPropertiesErrorResponse;
+import CamNecT.server.global.common.response.ValidationErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.BindException;
+import org.springframework.validation.BindingResult;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -25,6 +27,8 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+
+import java.util.List;
 
 @Slf4j
 @RestControllerAdvice
@@ -45,13 +49,41 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({
             MethodArgumentNotValidException.class,
-            HttpMessageNotReadableException.class,
             BindException.class,
             ConstraintViolationException.class,
+            HandlerMethodValidationException.class
+    })
+    public ResponseEntity<ValidationErrorResponse> handleValidation(Exception e, HttpServletRequest req) {
+        List<ValidationErrorResponse.FieldViolation> errors = extractValidationErrors(e);
+        if (errors.isEmpty()) {
+            errors = List.of(new ValidationErrorResponse.FieldViolation(
+                    "$request", "요청값이 올바르지 않습니다."
+            ));
+        }
+
+        log.warn("[ValidationError] {} {} | code={} | exception={} | fields={} | ua={}",
+                req.getMethod(),
+                req.getRequestURI(),
+                ErrorCode.BAD_REQUEST.getCode(),
+                e.getClass().getSimpleName(),
+                errors.stream().map(ValidationErrorResponse.FieldViolation::field).toList(),
+                req.getHeader("User-Agent")
+        );
+
+        return ResponseEntity.status(ErrorCode.BAD_REQUEST.getHttpStatus())
+                .body(new ValidationErrorResponse(
+                        ErrorCode.BAD_REQUEST.getHttpStatus().value(),
+                        ErrorCode.BAD_REQUEST.getCode(),
+                        ErrorCode.BAD_REQUEST.getMessage(),
+                        errors
+                ));
+    }
+
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
             MissingServletRequestParameterException.class,
             MissingPathVariableException.class,
-            MethodArgumentTypeMismatchException.class,
-            HandlerMethodValidationException.class
+            MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<ErrorResponse> handleBadRequest(Exception e, HttpServletRequest req) {
         log.warn("[BadRequest] {} {} | code={} | exception={} | ua={}",
@@ -138,5 +170,68 @@ public class GlobalExceptionHandler {
                         errorCode.getCode(),
                         errorCode.getMessage()
                 ));
+    }
+
+    private List<ValidationErrorResponse.FieldViolation> extractValidationErrors(Exception e) {
+        if (e instanceof MethodArgumentNotValidException methodArgumentNotValidException) {
+            return fromBindingResult(methodArgumentNotValidException.getBindingResult());
+        }
+        if (e instanceof BindException bindException) {
+            return fromBindingResult(bindException.getBindingResult());
+        }
+        if (e instanceof ConstraintViolationException constraintViolationException) {
+            return constraintViolationException.getConstraintViolations().stream()
+                    .map(violation -> new ValidationErrorResponse.FieldViolation(
+                            lastPathSegment(violation.getPropertyPath().toString()),
+                            defaultMessage(violation.getMessage())
+                    ))
+                    .distinct()
+                    .toList();
+        }
+        if (e instanceof HandlerMethodValidationException handlerMethodValidationException) {
+            return handlerMethodValidationException.getParameterValidationResults().stream()
+                    .flatMap(result -> {
+                        String parameterName = result.getMethodParameter().getParameterName();
+                        String field = parameterName == null ? "$request" : parameterName;
+                        return result.getResolvableErrors().stream()
+                                .map(error -> new ValidationErrorResponse.FieldViolation(
+                                        field,
+                                        defaultMessage(error.getDefaultMessage())
+                                ));
+                    })
+                    .distinct()
+                    .toList();
+        }
+        return List.of(new ValidationErrorResponse.FieldViolation("$request", "요청값이 올바르지 않습니다."));
+    }
+
+    private List<ValidationErrorResponse.FieldViolation> fromBindingResult(BindingResult bindingResult) {
+        List<ValidationErrorResponse.FieldViolation> fieldErrors = bindingResult.getFieldErrors().stream()
+                .map(error -> new ValidationErrorResponse.FieldViolation(
+                        error.getField(),
+                        defaultMessage(error.getDefaultMessage())
+                ))
+                .toList();
+
+        List<ValidationErrorResponse.FieldViolation> globalErrors = bindingResult.getGlobalErrors().stream()
+                .map(error -> new ValidationErrorResponse.FieldViolation(
+                        "$request",
+                        defaultMessage(error.getDefaultMessage())
+                ))
+                .toList();
+
+        return java.util.stream.Stream.concat(fieldErrors.stream(), globalErrors.stream())
+                .distinct()
+                .toList();
+    }
+
+    private String lastPathSegment(String propertyPath) {
+        if (propertyPath == null || propertyPath.isBlank()) return "$request";
+        int index = propertyPath.lastIndexOf('.');
+        return index < 0 ? propertyPath : propertyPath.substring(index + 1);
+    }
+
+    private String defaultMessage(String message) {
+        return message == null || message.isBlank() ? "유효하지 않은 값입니다." : message;
     }
 }

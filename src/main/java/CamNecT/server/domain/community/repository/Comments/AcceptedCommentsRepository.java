@@ -13,6 +13,8 @@ public interface AcceptedCommentsRepository extends JpaRepository<AcceptedCommen
 
     boolean existsByPost_Id(Long postId);
 
+    boolean existsByComment_Id(Long commentId);
+
     Optional<AcceptedComments> findByPost_Id(Long postId);
 
     @Query("select ac.post.id from AcceptedComments ac where ac.post.id in :postIds")

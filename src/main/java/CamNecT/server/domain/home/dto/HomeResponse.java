@@ -1,6 +1,7 @@
 package CamNecT.server.domain.home.dto;
 
 import CamNecT.server.domain.alumni.dto.AlumniHomeResponse;
+import CamNecT.server.domain.alumni.dto.ProfileCardDto;
 
 import java.util.List;
 
@@ -40,11 +41,12 @@ public record HomeResponse(
             List<RecruitmentPreview> latest5
     ) {
         public record RecruitmentPreview(
-                Long requestId,
-                Long senderUserId,
-                String senderName,
-                String majorName,   // nullable
-                String studentNo    // nullable (학번은 이걸로만)
+                Long userId,
+                String name,
+                String majorName,
+                ProfileCardDto profile,
+                List<String> tagList,
+                Long requestId
         ) {}
 
         public static RecruitmentSection empty() {
