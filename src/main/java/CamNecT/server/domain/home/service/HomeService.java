@@ -27,7 +27,7 @@ public class HomeService {
 
     private static final int HOME_COFFEECHAT_PREVIEW_SIZE = 2;
     private static final int HOME_RECRUITMENT_PREVIEW_SIZE = 5;
-    private static final int HOME_ALUMNI_PREVIEW_SIZE = 2;
+    private static final int HOME_ALUMNI_PREVIEW_SIZE = 5;
     private static final int HOME_CONTEST_PREVIEW_SIZE = 4;
 
     public HomeResponse getHome(Long userId) {
