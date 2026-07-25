@@ -15,6 +15,7 @@ import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostStatsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ class CommentServiceImplTest {
     @Mock CommentsRepository commentsRepository;
     @Mock PostStatsRepository postStatsRepository;
     @Mock CommentLikesRepository commentLikesRepository;
+    @Mock UserRepository userRepository;
     @Mock AcceptedCommentsRepository acceptedCommentsRepository;
     @Mock AuthorAssembler authorAssembler;
     @Mock ApplicationEventPublisher eventPublisher;
