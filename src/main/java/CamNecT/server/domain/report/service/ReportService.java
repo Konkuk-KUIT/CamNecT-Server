@@ -13,10 +13,14 @@ import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.BaseErrorCode;
+import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
+import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -26,6 +30,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 
 @Service
+@Slf4j
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class ReportService {
@@ -133,29 +138,35 @@ public class ReportService {
 
         try {
             switch (targetType) {
-                case COMMUNITY:
-                    postService.delete(adminId, postId);
-                    break;
-                case COMMUNITY_COMMENT:
-                    commentService.delete(adminId, postId);
-                    break;
-                case ACTIVITY:
-                    activityService.delete(postId, adminId);
-                    break;
-                case ACTIVITY_RECRUITMENT:
-                    recruitmentService.deleteRecruitment(adminId, postId);
-                    break;
-                case USER:
-                    // 사용자 계정 삭제는 신고 처리의 일부가 아님 (별도 처리)
-                    break;
-                case CHAT:
-                    // 채팅방 삭제는 신고 처리의 일부가 아님 (별도 처리)
-                    break;
+                case COMMUNITY -> postService.delete(adminId, postId);
+                case COMMUNITY_COMMENT -> commentService.delete(adminId, postId);
+                case ACTIVITY -> activityService.delete(postId, adminId);
+                case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitment(adminId, postId);
+                case USER -> log.info("Skipping account deletion in report processing. reportId={}", report.getReportId());
+                case CHAT -> log.info("Skipping chat deletion in report processing. reportId={}", report.getReportId());
             }
-        } catch (Exception e) {
-            // 게시글 삭제 실패해도 신고 처리는 계속 진행
-            // (이미 사용자에게 패널티는 적용됨)
+        } catch (CustomException e) {
+            if (isIgnorableDeletionFailure(e.getErrorCode())) {
+                log.warn(
+                        "Reported content already missing. continue report process. reportId={}, targetType={}, postId={}, code={}",
+                        report.getReportId(), targetType, postId, e.getErrorCode().getCode()
+                );
+                return;
+            }
+
+            log.error(
+                    "Failed to delete reported content. reportId={}, targetType={}, postId={}, code={}",
+                    report.getReportId(), targetType, postId, e.getErrorCode().getCode(), e
+            );
+            throw e;
         }
+    }
+
+    private boolean isIgnorableDeletionFailure(BaseErrorCode errorCode) {
+        return errorCode == CommunityErrorCode.POST_NOT_FOUND
+                || errorCode == CommunityErrorCode.COMMENT_NOT_FOUND
+                || errorCode == ActivityErrorCode.ACTIVITY_NOT_FOUND
+                || errorCode == ActivityErrorCode.RECRUITMENT_NOT_FOUND;
     }
 
     /**

@@ -23,7 +23,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "Report", description = "신고 관리 관련 API")
@@ -73,12 +72,13 @@ public class ReportController {
             )
     })
     @PostMapping
-    public ResponseEntity<ReportResultResponse> createReport(
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<ReportResultResponse> createReport(
             @UserId Long reporterId,
             @RequestBody @Valid ReportCreateRequest request) {
         Long reportId = reportService.createReport(reporterId, request);
         ReportResultResponse response = ReportResultResponse.submitted(reportId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ApiResponse.success(response);
     }
 
     /**
@@ -168,12 +168,12 @@ public class ReportController {
             )
     })
     @GetMapping("/admin")
-    public ResponseEntity<Page<ReportResponse>> getReports(
+    public ApiResponse<Page<ReportResponse>> getReports(
             @UserId Long userId,
             @RequestParam(required = false) TargetType type,
             @RequestParam(required = false) ReportStatus status,
             Pageable pageable) {
-        return ResponseEntity.ok(reportService.findAllReports(userId, type, status, pageable));
+        return ApiResponse.success(reportService.findAllReports(userId, type, status, pageable));
     }
 
     /**
@@ -212,10 +212,10 @@ public class ReportController {
             )
     })
     @GetMapping("/admin/{reportId}")
-    public ResponseEntity<ReportResponse> getReportDetail(
+    public ApiResponse<ReportResponse> getReportDetail(
             @UserId Long userId,
             @PathVariable Long reportId) {
-        return ResponseEntity.ok(reportService.getReportDetail(userId, reportId));
+        return ApiResponse.success(reportService.getReportDetail(userId, reportId));
     }
 
     /**
@@ -234,7 +234,7 @@ public class ReportController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "204",
+                    responseCode = "200",
                     description = "신고 처리 성공"
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -264,12 +264,12 @@ public class ReportController {
             )
     })
     @PatchMapping("/admin/{reportId}/status")
-    public ResponseEntity<Void> processReport(
+    public ApiResponse<Void> processReport(
             @UserId Long userId,
             @PathVariable Long reportId,
             @RequestBody @Valid ReportProcessRequest request) {
         reportService.processReport(userId, reportId, request.getStatus());
-        return ResponseEntity.noContent().build();
+        return ApiResponse.success(null);
     }
 
     /**
@@ -302,10 +302,10 @@ public class ReportController {
             )
     })
     @GetMapping("/admin/users/{targetUserId}/report-count")
-    public ResponseEntity<Long> getReportCount(
+    public ApiResponse<Long> getReportCount(
             @UserId Long userId,
             @PathVariable Long targetUserId) {
         long reportCount = reportService.getResolvedReportCount(targetUserId);
-        return ResponseEntity.ok(reportCount);
+        return ApiResponse.success(reportCount);
     }
 }
