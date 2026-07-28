@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatStompInterceptorTest {
@@ -66,9 +67,23 @@ class ChatStompInterceptorTest {
         assertThat(ex.getErrorCode()).isEqualTo(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);
     }
 
+    @Test
+    void rechecksAccountRestrictionOnEverySendFrame() {
+        assertDoesNotThrow(() -> interceptor.preSend(send(), channel));
+
+        verify(accountAccessGuard).requireActive(1L);
+    }
+
     private Message<byte[]> subscribe(String destination) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
         accessor.setDestination(destination);
+        accessor.setSessionAttributes(new HashMap<>(Map.of("userId", 1L)));
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    private Message<byte[]> send() {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setDestination("/app/chat/message");
         accessor.setSessionAttributes(new HashMap<>(Map.of("userId", 1L)));
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }

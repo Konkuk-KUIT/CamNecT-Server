@@ -5,11 +5,11 @@ import CamNecT.server.domain.report.model.UserReportPenalty;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
+import java.util.List;
 
 public interface UserReportPenaltyRepository extends JpaRepository<UserReportPenalty, Long> {
 
-    boolean existsByReport_ReportId(Long reportId);
+    boolean existsByReportCase_CaseId(Long caseId);
 
     long countByUser_UserId(Long userId);
 
@@ -21,8 +21,5 @@ public interface UserReportPenaltyRepository extends JpaRepository<UserReportPen
             LocalDateTime now
     );
 
-    Optional<UserReportPenalty> findTopByUser_UserIdAndPenaltyTypeOrderBySuspensionEndDateDesc(
-            Long userId,
-            PenaltyType penaltyType
-    );
+    List<UserReportPenalty> findAllByUser_UserIdOrderByCreatedAtDesc(Long userId);
 }

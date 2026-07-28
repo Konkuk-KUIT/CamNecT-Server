@@ -60,11 +60,29 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             }
         }
 
+        if (accessor != null && (StompCommand.SEND.equals(accessor.getCommand())
+                || StompCommand.SUBSCRIBE.equals(accessor.getCommand()))) {
+            requireActiveSessionUser(accessor);
+        }
+
         if (accessor != null && StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
             authorizeSubscription(accessor);
         }
 
         return message;
+    }
+
+    private void requireActiveSessionUser(StompHeaderAccessor accessor) {
+        Object userIdValue = accessor.getSessionAttributes() == null
+                ? null : accessor.getSessionAttributes().get("userId");
+        if (userIdValue == null) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+        }
+        try {
+            accountAccessGuard.requireActive(Long.valueOf(userIdValue.toString()));
+        } catch (NumberFormatException e) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
+        }
     }
 
     private void authorizeSubscription(StompHeaderAccessor accessor) {

@@ -16,8 +16,8 @@ import java.time.LocalDateTime;
 @Table(
         name = "user_report_penalty",
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_user_report_penalty_report",
-                columnNames = "report_id"
+                name = "uk_user_report_penalty_case",
+                columnNames = "case_id"
         ),
         indexes = {
                 @Index(name = "idx_user_report_penalty_user", columnList = "user_id"),
@@ -34,8 +34,8 @@ public class UserReportPenalty {
     private Long penaltyId;
 
     @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "report_id", nullable = false, unique = true)
-    private Report report;
+    @JoinColumn(name = "case_id", nullable = false, unique = true)
+    private ReportCase reportCase;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
@@ -60,13 +60,13 @@ public class UserReportPenalty {
     private LocalDateTime createdAt;
 
     private UserReportPenalty(
-            Report report,
+            ReportCase reportCase,
             Users user,
             PenaltyType penaltyType,
             LocalDateTime suspensionEndDate,
             String reason
     ) {
-        this.report = report;
+        this.reportCase = reportCase;
         this.user = user;
         this.penaltyType = penaltyType;
         this.suspensionEndDate = suspensionEndDate;
@@ -74,18 +74,18 @@ public class UserReportPenalty {
         this.previousStatus = user.getStatus();
     }
 
-    public static UserReportPenalty warning(Report report, Users user, String reason) {
-        return new UserReportPenalty(report, user, PenaltyType.WARNING, null, reason);
+    public static UserReportPenalty warning(ReportCase reportCase, Users user, String reason) {
+        return new UserReportPenalty(reportCase, user, PenaltyType.WARNING, null, reason);
     }
 
     public static UserReportPenalty suspended(
-            Report report,
+            ReportCase reportCase,
             Users user,
             LocalDateTime suspensionEndDate,
             String reason
     ) {
         return new UserReportPenalty(
-                report,
+                reportCase,
                 user,
                 PenaltyType.SUSPENDED_7_DAYS,
                 suspensionEndDate,
@@ -93,8 +93,8 @@ public class UserReportPenalty {
         );
     }
 
-    public static UserReportPenalty permanentlyBanned(Report report, Users user, String reason) {
-        return new UserReportPenalty(report, user, PenaltyType.PERMANENT_BAN, null, reason);
+    public static UserReportPenalty permanentlyBanned(ReportCase reportCase, Users user, String reason) {
+        return new UserReportPenalty(reportCase, user, PenaltyType.PERMANENT_BAN, null, reason);
     }
 
     public boolean isActiveAt(LocalDateTime now) {

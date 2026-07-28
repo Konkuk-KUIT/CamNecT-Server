@@ -2,7 +2,8 @@ package CamNecT.server.domain.report.controller;
 
 import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
 import CamNecT.server.domain.report.dto.request.ReportProcessRequest;
-import CamNecT.server.domain.report.dto.response.ReportResponse;
+import CamNecT.server.domain.report.dto.response.ReportCaseDetailResponse;
+import CamNecT.server.domain.report.dto.response.ReportCaseSummaryResponse;
 import CamNecT.server.domain.report.dto.response.ReportResultResponse;
 import CamNecT.server.domain.report.model.ReportStatus;
 import CamNecT.server.domain.report.model.TargetType;
@@ -137,13 +138,13 @@ public class ReportController {
     }
 
     /**
-     * 관리자가 신고 목록을 조회하는 메서드
+     * 관리자가 신고 객체별 case 목록을 조회하는 메서드
      * GET /api/v1/reports/admin
      * 쿼리 파라미터: type (COMMUNITY, COMMUNITY_COMMENT, ACTIVITY, ACTIVITY_RECRUITMENT, USER, CHAT), status (RECEIVED, RESOLVED, REJECTED)
      */
     @Operation(
             summary = "신고 목록 조회 (관리자)",
-            description = "제출된 신고 목록을 조회합니다. 신고 타입과 상태로 필터링할 수 있습니다."
+            description = "동일 객체에 접수된 신고를 하나의 case로 묶어 조회합니다. 신고 타입과 상태로 필터링할 수 있습니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -168,7 +169,7 @@ public class ReportController {
             )
     })
     @GetMapping("/admin")
-    public ApiResponse<Page<ReportResponse>> getReports(
+    public ApiResponse<Page<ReportCaseSummaryResponse>> getReports(
             @UserId Long userId,
             @RequestParam(required = false) TargetType type,
             @RequestParam(required = false) ReportStatus status,
@@ -177,18 +178,18 @@ public class ReportController {
     }
 
     /**
-     * 관리자가 신고 상세 정보를 조회하는 메서드
-     * GET /api/v1/reports/admin/{reportId}
+     * 관리자가 신고 case 상세 정보를 조회하는 메서드
+     * GET /api/v1/reports/admin/{caseId}
      */
     @Operation(
             summary = "신고 상세 조회 (관리자)",
-            description = "특정 신고의 상세 정보(증거 이미지 URL 포함)를 조회합니다."
+            description = "대상 작성자, 개별 신고 제출 내역, 증거 이미지와 대상 사용자의 기존 제재 이력을 조회합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "신고 상세 정보 조회 성공",
-                    content = @Content(schema = @Schema(implementation = ReportResponse.class))
+                    content = @Content(schema = @Schema(implementation = ReportCaseDetailResponse.class))
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
@@ -211,26 +212,27 @@ public class ReportController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))
             )
     })
-    @GetMapping("/admin/{reportId}")
-    public ApiResponse<ReportResponse> getReportDetail(
+    @GetMapping("/admin/{caseId}")
+    public ApiResponse<ReportCaseDetailResponse> getReportDetail(
             @UserId Long userId,
-            @PathVariable Long reportId) {
-        return ApiResponse.success(reportService.getReportDetail(userId, reportId));
+            @PathVariable Long caseId) {
+        return ApiResponse.success(reportService.getReportDetail(userId, caseId));
     }
 
     /**
      * 관리자가 신고를 처리하는 메서드 (승인/반려)
-     * PATCH /api/v1/reports/admin/{reportId}/status
-     * 요청: { status: RESOLVED or REJECTED }
+     * PATCH /api/v1/reports/admin/{caseId}/status
+     * 승인 요청: { status: RESOLVED, decidedCategory, reason }
+     * 반려 요청: { status: REJECTED, reason }
      */
     @Operation(
             summary = "신고 처리 (승인/반려)",
-            description = "신고를 검토하여 승인(RESOLVED) 또는 반려(REJECTED) 처리합니다. 승인 시 자동으로 패널티가 적용됩니다.\n\n" +
+            description = "신고 case를 승인(RESOLVED) 또는 반려(REJECTED) 처리합니다. 승인 시 관리자가 확정한 decidedCategory가 필수이며 case당 패널티가 한 번만 적용됩니다.\n\n" +
                     "**패널티 체계:**\n" +
                     "- 1회: 경고 알림\n" +
                     "- 2회: 7일 정지\n" +
                     "- 3회: 영구 차단\n" +
-                    "- 즉시 제재: 성희롱, 포교, 문서 위조 → 1회 적발 시 영구 차단"
+                    "- 즉시 제재: 성희롱, 사기 → 1개 객체 승인 시 영구 차단"
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -263,12 +265,12 @@ public class ReportController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))
             )
     })
-    @PatchMapping("/admin/{reportId}/status")
+    @PatchMapping("/admin/{caseId}/status")
     public ApiResponse<Void> processReport(
             @UserId Long userId,
-            @PathVariable Long reportId,
+            @PathVariable Long caseId,
             @RequestBody @Valid ReportProcessRequest request) {
-        reportService.processReport(userId, reportId, request.getStatus());
+        reportService.processReport(userId, caseId, request);
         return ApiResponse.success(null);
     }
 

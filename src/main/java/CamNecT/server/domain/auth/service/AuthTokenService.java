@@ -39,10 +39,8 @@ public class AuthTokenService {
         Long userId = jwtUtil.getUserId(refreshToken);
         Users user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
-        if (user.getStatus() == UserStatus.SUSPENDED) {
-            userReportPenaltyService.refreshRestrictionStatus(userId);
-        }
-        if (user.getStatus() == UserStatus.SUSPENDED) {
+        if (user.getStatus() == UserStatus.SUSPENDED
+                || userReportPenaltyService.hasActiveRestriction(userId)) {
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
         if (user.getStatus() == UserStatus.WITHDRAWN) {

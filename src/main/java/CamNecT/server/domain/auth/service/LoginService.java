@@ -66,7 +66,11 @@ public class LoginService {
         }
 
         // 신고 제재 이력을 기준으로 만료 상태를 갱신하고 활성 제재를 검사한다.
-        if (userReportPenaltyService.refreshRestrictionStatus(user.getUserId())) {
+        if (userReportPenaltyService.hasActiveRestriction(user.getUserId())) {
+            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
+        }
+
+        if (user.getStatus() == UserStatus.SUSPENDED) {
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
 

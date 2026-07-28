@@ -5,9 +5,15 @@ import CamNecT.server.domain.activity.service.RecruitmentService;
 import CamNecT.server.domain.community.service.CommentService;
 import CamNecT.server.domain.community.service.PostService;
 import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
-import CamNecT.server.domain.report.dto.response.ReportResponse;
+import CamNecT.server.domain.report.dto.request.ReportProcessRequest;
+import CamNecT.server.domain.report.dto.response.ReportCaseDetailResponse;
+import CamNecT.server.domain.report.dto.response.ReportCaseSummaryResponse;
+import CamNecT.server.domain.report.dto.response.ReportPenaltyResponse;
+import CamNecT.server.domain.report.dto.response.ReportSubmissionResponse;
 import CamNecT.server.domain.report.model.*;
+import CamNecT.server.domain.report.repository.ReportCaseRepository;
 import CamNecT.server.domain.report.repository.ReportRepository;
+import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
@@ -27,6 +33,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.util.List;
+
 @Service
 @Slf4j
 @Transactional(readOnly = true)
@@ -34,6 +44,8 @@ import org.springframework.util.StringUtils;
 public class ReportService {
 
     private final ReportRepository reportRepository;
+    private final ReportCaseRepository reportCaseRepository;
+    private final UserReportPenaltyRepository penaltyRepository;
     private final UserRepository userRepository;
     private final PublicUrlIssuer publicUrlIssuer;
     private final ReportAttachmentService reportAttachmentService;
@@ -42,6 +54,8 @@ public class ReportService {
     private final ActivityService activityService;
     private final RecruitmentService recruitmentService;
     private final UserReportPenaltyService userReportPenaltyService;
+    private final ReportTargetResolver reportTargetResolver;
+    private final Clock clock;
 
     // 관리자 검증 공통 메서드
     private void validateAdmin(Long userId) {
@@ -56,29 +70,37 @@ public class ReportService {
      */
     @Transactional
     public Long createReport(Long reporterId, ReportCreateRequest dto) {
-        if (reporterId.equals(dto.reportedUserId())) {
+        ReportTargetResolver.ResolvedTarget target = reportTargetResolver.resolve(reporterId, dto);
+        if (reporterId.equals(target.author().getUserId())) {
             throw new CustomException(ReportErrorCode.REPORT_SELF_NOT_ALLOWED);
         }
 
-        validateTarget(dto);
-
-        userRepository.findById(dto.reportedUserId())
+        userRepository.lockUserRow(target.author().getUserId());
+        Users targetAuthor = userRepository.findById(target.author().getUserId())
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
-        String targetKey = Report.targetKeyFor(
-                dto.postType(),
-                dto.reportedUserId(),
-                dto.reportedPostId()
-        );
-        if (reportRepository.existsByReporterIdAndTargetKey(reporterId, targetKey)) {
+        ReportCase reportCase = reportCaseRepository.findByTargetKey(target.targetKey())
+                .orElseGet(() -> reportCaseRepository.saveAndFlush(ReportCase.open(
+                        target.targetKey(),
+                        targetAuthor,
+                        target.targetId(),
+                        dto.postType()
+                )));
+
+        if (reportCase.getStatus() != ReportStatus.RECEIVED) {
+            throw new CustomException(ReportErrorCode.REPORT_CASE_CLOSED);
+        }
+
+        if (reportRepository.existsByReporterIdAndReportCase_CaseId(reporterId, reportCase.getCaseId())) {
             throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
         }
 
         // 증거 이미지는 일단 presign된 키로 저장, 나중에 consume 처리
         Report report = new Report(
+                reportCase,
                 reporterId,
-                dto.reportedUserId(),
-                dto.reportedPostId(),
+                targetAuthor.getUserId(),
+                dto.postType() == TargetType.USER ? null : target.targetId(),
                 dto.postType(),
                 dto.reportCategory(),
                 dto.title(),
@@ -91,6 +113,8 @@ public class ReportService {
         } catch (DataIntegrityViolationException e) {
             throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
         }
+
+        reportCase.addReport();
         
         // 증거 이미지가 있으면 최종 경로로 이동 (consume)
         if (StringUtils.hasText(dto.evidenceImageUrl())) {
@@ -108,60 +132,68 @@ public class ReportService {
     /**
      * 2. 관리자용 목록 조회
      */
-    public Page<ReportResponse> findAllReports(Long userId, TargetType type, ReportStatus status, Pageable pageable) {
+    public Page<ReportCaseSummaryResponse> findAllReports(Long userId, TargetType type, ReportStatus status, Pageable pageable) {
         validateAdmin(userId);
-
-        Page<Report> reports;
-
-        if (type != null && status != null) {
-            reports = reportRepository.findAllByPostTypeAndStatus(type, status, pageable);
-        } else if (status != null) {
-            reports = reportRepository.findAllByStatus(status, pageable);
-        } else {
-            reports = reportRepository.findAll(pageable);
-        }
-
-        return reports.map(this::toResponseWithEvidenceUrl);
+        return reportCaseRepository.findAllByFilters(type, status, pageable)
+                .map(ReportCaseSummaryResponse::from);
     }
 
     /**
      * 3. 관리자 신고 처리 (승인/반려)
      */
     @Transactional
-    public void processReport(Long userId, Long reportId, ReportStatus newStatus) {
+    public void processReport(Long userId, Long caseId, ReportProcessRequest request) {
         validateAdmin(userId);
 
+        ReportStatus newStatus = request.status();
         if (newStatus != ReportStatus.RESOLVED && newStatus != ReportStatus.REJECTED) {
             throw new CustomException(ReportErrorCode.REPORT_INVALID_STATUS);
         }
+        if (newStatus == ReportStatus.RESOLVED && request.decidedCategory() == null) {
+            throw new CustomException(ReportErrorCode.REPORT_CATEGORY_REQUIRED);
+        }
 
-        Report report = reportRepository.findByIdForUpdate(reportId)
+        ReportCase caseSnapshot = reportCaseRepository.findById(caseId)
+                .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
+        userRepository.lockUserRow(caseSnapshot.getReportedUser().getUserId());
+        ReportCase reportCase = reportCaseRepository.findByIdForUpdate(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
-        if (report.getStatus() != ReportStatus.RECEIVED) {
+        if (reportCase.getStatus() != ReportStatus.RECEIVED) {
             throw new CustomException(ReportErrorCode.REPORT_ALREADY_PROCESSED);
         }
 
+        List<Report> submissions = reportRepository
+                .findAllByReportCase_CaseIdOrderByCreatedAtAsc(caseId);
+        LocalDateTime now = LocalDateTime.now(clock);
+
         if (newStatus == ReportStatus.RESOLVED) {
-            PenaltyType penaltyType = userReportPenaltyService.applyPenalty(report);
-            report.applyPenalty(penaltyType);
-            deleteReportedContent(userId, report);
+            reportCase.decideCategory(request.decidedCategory());
+            PenaltyType penaltyType = userReportPenaltyService.applyPenalty(reportCase);
+            deleteReportedContent(userId, reportCase);
+            reportCase.resolve(userId, request.decidedCategory(), penaltyType, request.reason(), now);
+            submissions.forEach(report -> {
+                report.applyPenalty(penaltyType);
+                report.updateStatus(ReportStatus.RESOLVED);
+            });
+            return;
         }
 
-        report.updateStatus(newStatus);
+        reportCase.reject(userId, request.reason(), now);
+        submissions.forEach(report -> report.updateStatus(ReportStatus.REJECTED));
     }
 
     /**
      * 신고된 게시글 삭제
      */
     @Transactional
-    protected void deleteReportedContent(Long adminId, Report report) {
-        if (report.getReportedPostId() == null || report.getPostType() == null) {
+    protected void deleteReportedContent(Long adminId, ReportCase reportCase) {
+        if (reportCase.getTargetType() == TargetType.USER) {
             return;
         }
 
-        Long postId = report.getReportedPostId();
-        TargetType targetType = report.getPostType();
+        Long postId = reportCase.getTargetId();
+        TargetType targetType = reportCase.getTargetType();
 
         try {
             switch (targetType) {
@@ -169,21 +201,21 @@ public class ReportService {
                 case COMMUNITY_COMMENT -> commentService.delete(adminId, postId);
                 case ACTIVITY -> activityService.delete(postId, adminId);
                 case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitment(adminId, postId);
-                case USER -> log.info("Skipping account deletion in report processing. reportId={}", report.getReportId());
-                case CHAT -> log.info("Skipping chat deletion in report processing. reportId={}", report.getReportId());
+                case USER -> log.info("Skipping account deletion in report processing. caseId={}", reportCase.getCaseId());
+                case CHAT -> log.info("Skipping chat deletion in report processing. caseId={}", reportCase.getCaseId());
             }
         } catch (CustomException e) {
             if (isIgnorableDeletionFailure(e.getErrorCode())) {
                 log.warn(
-                        "Reported content already missing. continue report process. reportId={}, targetType={}, postId={}, code={}",
-                        report.getReportId(), targetType, postId, e.getErrorCode().getCode()
+                        "Reported content already missing. continue report process. caseId={}, targetType={}, postId={}, code={}",
+                        reportCase.getCaseId(), targetType, postId, e.getErrorCode().getCode()
                 );
                 return;
             }
 
             log.error(
-                    "Failed to delete reported content. reportId={}, targetType={}, postId={}, code={}",
-                    report.getReportId(), targetType, postId, e.getErrorCode().getCode(), e
+                    "Failed to delete reported content. caseId={}, targetType={}, postId={}, code={}",
+                    reportCase.getCaseId(), targetType, postId, e.getErrorCode().getCode(), e
             );
             throw e;
         }
@@ -199,13 +231,29 @@ public class ReportService {
     /**
      * 신고 상세 조회 (관리자용)
      */
-    public ReportResponse getReportDetail(Long userId, Long reportId) {
+    public ReportCaseDetailResponse getReportDetail(Long userId, Long caseId) {
         validateAdmin(userId);
 
-        Report report = reportRepository.findById(reportId)
+        ReportCase reportCase = reportCaseRepository.findById(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
-        return toResponseWithEvidenceUrl(report);
+        List<ReportSubmissionResponse> submissions = reportRepository
+                .findAllByReportCase_CaseIdOrderByCreatedAtAsc(caseId)
+                .stream()
+                .map(report -> ReportSubmissionResponse.from(
+                        report,
+                        issueEvidenceImageUrl(report.getEvidenceImageUrl())
+                ))
+                .toList();
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<ReportPenaltyResponse> existingPenalties = penaltyRepository
+                .findAllByUser_UserIdOrderByCreatedAtDesc(reportCase.getReportedUser().getUserId())
+                .stream()
+                .map(penalty -> ReportPenaltyResponse.from(penalty, now))
+                .toList();
+
+        return ReportCaseDetailResponse.from(reportCase, submissions, existingPenalties);
     }
 
     /**
@@ -227,21 +275,4 @@ public class ReportService {
         return publicUrlIssuer.issueImagePublicUrl(storageKey);
     }
 
-    private ReportResponse toResponseWithEvidenceUrl(Report report) {
-        String evidenceImageUrl = issueEvidenceImageUrl(report.getEvidenceImageUrl());
-        return ReportResponse.from(report, evidenceImageUrl);
-    }
-
-    private void validateTarget(ReportCreateRequest dto) {
-        if (dto.postType() == TargetType.USER) {
-            if (dto.reportedPostId() != null) {
-                throw new CustomException(ReportErrorCode.REPORT_INVALID_TARGET);
-            }
-            return;
-        }
-
-        if (dto.reportedPostId() == null) {
-            throw new CustomException(ReportErrorCode.REPORT_INVALID_TARGET);
-        }
-    }
 }

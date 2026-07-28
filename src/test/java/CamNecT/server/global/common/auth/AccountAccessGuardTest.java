@@ -13,7 +13,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AccountAccessGuardTest {
@@ -39,19 +38,18 @@ class AccountAccessGuardTest {
                 () -> guard.requireAccessible(1L));
 
         assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
-        verify(userReportPenaltyService).refreshRestrictionStatus(1L);
     }
 
     @Test
-    void allowsAccountAfterReportSuspensionExpires() {
-        Users user = Users.builder().userId(1L).status(UserStatus.SUSPENDED).build();
+    void rejectsActiveAccountWhileReportRestrictionIsActive() {
+        Users user = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userReportPenaltyService.refreshRestrictionStatus(1L)).thenAnswer(invocation -> {
-            user.changeStatus(UserStatus.ACTIVE);
-            return false;
-        });
+        when(userReportPenaltyService.hasActiveRestriction(1L)).thenReturn(true);
 
-        assertThat(guard.requireAccessible(1L)).isSameAs(user);
+        CustomException exception = assertThrows(CustomException.class,
+                () -> guard.requireAccessible(1L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
         assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 

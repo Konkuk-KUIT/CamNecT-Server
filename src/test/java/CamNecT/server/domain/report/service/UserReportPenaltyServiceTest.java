@@ -43,112 +43,80 @@ class UserReportPenaltyServiceTest {
     }
 
     @Test
-    void secondApprovedReportCreatesSevenDaySuspensionAndUpdatesUserStatus() {
-        Users user = activeUser(2L);
-        Report report = report(10L, 2L, ReportCategory.OTHER);
+    void secondApprovedCaseCreatesSevenDayRestrictionWithoutChangingManualUserStatus() {
+        Users user = user(2L, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, user, ReportCategory.OTHER);
         when(userRepository.findById(2L)).thenReturn(Optional.of(user));
         when(penaltyRepository.countByUser_UserId(2L)).thenReturn(1L);
 
-        PenaltyType result = service.applyPenalty(report);
+        PenaltyType result = service.applyPenalty(reportCase);
 
         ArgumentCaptor<UserReportPenalty> captor = ArgumentCaptor.forClass(UserReportPenalty.class);
         verify(penaltyRepository).saveAndFlush(captor.capture());
         UserReportPenalty saved = captor.getValue();
 
         assertThat(result).isEqualTo(PenaltyType.SUSPENDED_7_DAYS);
-        assertThat(saved.getPenaltyType()).isEqualTo(PenaltyType.SUSPENDED_7_DAYS);
         assertThat(saved.getSuspensionEndDate()).isEqualTo(
                 LocalDateTime.ofInstant(FIXED_INSTANT, SEOUL).plusDays(7)
         );
-        assertThat(user.getStatus()).isEqualTo(UserStatus.SUSPENDED);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
         verify(userRepository).lockUserRow(2L);
     }
 
     @Test
-    void immediateBanCreatesPermanentPenaltyOnFirstApprovedReport() {
-        Users user = activeUser(2L);
-        Report report = report(10L, 2L, ReportCategory.FRAUD);
+    void immediateBanUsesAdministratorDecidedCategory() {
+        Users user = user(2L, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, user, ReportCategory.FRAUD);
         when(userRepository.findById(2L)).thenReturn(Optional.of(user));
-        when(penaltyRepository.countByUser_UserId(2L)).thenReturn(0L);
 
-        PenaltyType result = service.applyPenalty(report);
+        PenaltyType result = service.applyPenalty(reportCase);
 
-        ArgumentCaptor<UserReportPenalty> captor = ArgumentCaptor.forClass(UserReportPenalty.class);
-        verify(penaltyRepository).saveAndFlush(captor.capture());
         assertThat(result).isEqualTo(PenaltyType.PERMANENT_BAN);
-        assertThat(captor.getValue().getPenaltyType()).isEqualTo(PenaltyType.PERMANENT_BAN);
+    }
+
+    @Test
+    void expiredReportRestrictionDoesNotClearExistingManualSuspension() {
+        Users user = user(2L, UserStatus.SUSPENDED);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
+
+        boolean reportRestricted = service.hasActiveRestriction(2L);
+
+        assertThat(reportRestricted).isFalse();
         assertThat(user.getStatus()).isEqualTo(UserStatus.SUSPENDED);
     }
 
     @Test
-    void expiredTemporaryPenaltyRestoresStatusFromBeforeSuspension() {
-        Users user = Users.builder().userId(2L).status(UserStatus.ADMIN_PENDING).build();
-        Report report = report(10L, 2L, ReportCategory.OTHER);
-        UserReportPenalty expiredPenalty = UserReportPenalty.suspended(
-                report,
-                user,
-                LocalDateTime.ofInstant(FIXED_INSTANT, SEOUL).minusMinutes(1),
-                "expired"
-        );
-        user.changeStatus(UserStatus.SUSPENDED);
+    void activeTemporaryRestrictionIsEnforcedIndependentlyFromUserStatus() {
+        Users user = user(2L, UserStatus.ACTIVE);
         when(userRepository.findById(2L)).thenReturn(Optional.of(user));
-        when(penaltyRepository.findTopByUser_UserIdAndPenaltyTypeOrderBySuspensionEndDateDesc(
-                2L,
-                PenaltyType.SUSPENDED_7_DAYS
-        )).thenReturn(Optional.of(expiredPenalty));
+        when(penaltyRepository.existsByUser_UserIdAndPenaltyTypeAndSuspensionEndDateAfter(
+                eq(2L),
+                eq(PenaltyType.SUSPENDED_7_DAYS),
+                any(LocalDateTime.class)
+        )).thenReturn(true);
 
-        boolean suspended = service.refreshRestrictionStatus(2L);
-
-        assertThat(suspended).isFalse();
-        assertThat(user.getStatus()).isEqualTo(UserStatus.ADMIN_PENDING);
+        assertThat(service.hasActiveRestriction(2L)).isTrue();
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test
-    void permanentPenaltyCanNeverBeCleared() {
-        Users user = activeUser(2L);
+    void permanentRestrictionIsAlwaysActive() {
+        Users user = user(2L, UserStatus.ACTIVE);
         when(userRepository.findById(2L)).thenReturn(Optional.of(user));
         when(penaltyRepository.existsByUser_UserIdAndPenaltyType(2L, PenaltyType.PERMANENT_BAN))
                 .thenReturn(true);
 
-        boolean suspended = service.refreshRestrictionStatus(2L);
-
-        assertThat(suspended).isTrue();
-        assertThat(user.getStatus()).isEqualTo(UserStatus.SUSPENDED);
-        verify(penaltyRepository, never())
-                .findTopByUser_UserIdAndPenaltyTypeOrderBySuspensionEndDateDesc(anyLong(), any());
+        assertThat(service.hasActiveRestriction(2L)).isTrue();
     }
 
-    @Test
-    void unrelatedSuspendedStatusIsNotClearedWithoutReportPenaltyHistory() {
-        Users user = Users.builder().userId(2L).status(UserStatus.SUSPENDED).build();
-        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
-        when(penaltyRepository.findTopByUser_UserIdAndPenaltyTypeOrderBySuspensionEndDateDesc(
-                2L,
-                PenaltyType.SUSPENDED_7_DAYS
-        )).thenReturn(Optional.empty());
-
-        boolean suspended = service.refreshRestrictionStatus(2L);
-
-        assertThat(suspended).isTrue();
-        assertThat(user.getStatus()).isEqualTo(UserStatus.SUSPENDED);
+    private static Users user(Long userId, UserStatus status) {
+        return Users.builder().userId(userId).name("user").status(status).build();
     }
 
-    private static Users activeUser(Long userId) {
-        return Users.builder().userId(userId).status(UserStatus.ACTIVE).build();
-    }
-
-    private static Report report(Long reportId, Long reportedUserId, ReportCategory category) {
-        Report report = new Report(
-                1L,
-                reportedUserId,
-                null,
-                TargetType.USER,
-                category,
-                "title",
-                "context",
-                null
-        );
-        ReflectionTestUtils.setField(report, "reportId", reportId);
-        return report;
+    private static ReportCase reportCase(Long caseId, Users user, ReportCategory decidedCategory) {
+        ReportCase reportCase = ReportCase.open("USER:" + user.getUserId(), user, user.getUserId(), TargetType.USER);
+        ReflectionTestUtils.setField(reportCase, "caseId", caseId);
+        reportCase.decideCategory(decidedCategory);
+        return reportCase;
     }
 }

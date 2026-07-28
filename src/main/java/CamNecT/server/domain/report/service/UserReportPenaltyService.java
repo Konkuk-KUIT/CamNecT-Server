@@ -1,7 +1,7 @@
 package CamNecT.server.domain.report.service;
 
 import CamNecT.server.domain.report.model.PenaltyType;
-import CamNecT.server.domain.report.model.Report;
+import CamNecT.server.domain.report.model.ReportCase;
 import CamNecT.server.domain.report.model.UserReportPenalty;
 import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserStatus;
@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -29,20 +28,20 @@ public class UserReportPenaltyService {
     private final Clock clock;
 
     @Transactional
-    public PenaltyType applyPenalty(Report report) {
-        Long userId = report.getReportedUserId();
+    public PenaltyType applyPenalty(ReportCase reportCase) {
+        Long userId = reportCase.getReportedUser().getUserId();
         userRepository.lockUserRow(userId);
 
         Users user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
-        if (penaltyRepository.existsByReport_ReportId(report.getReportId())) {
+        if (penaltyRepository.existsByReportCase_CaseId(reportCase.getCaseId())) {
             throw new CustomException(ReportErrorCode.REPORT_ALREADY_PROCESSED);
         }
 
         long approvedReportCount = penaltyRepository.countByUser_UserId(userId) + 1;
         LocalDateTime now = LocalDateTime.now(clock);
-        UserReportPenalty penalty = determinePenalty(report, user, approvedReportCount, now);
+        UserReportPenalty penalty = determinePenalty(reportCase, user, approvedReportCount, now);
 
         try {
             penaltyRepository.saveAndFlush(penalty);
@@ -50,22 +49,16 @@ public class UserReportPenaltyService {
             throw new CustomException(ReportErrorCode.REPORT_ALREADY_PROCESSED);
         }
 
-        PenaltyType penaltyType = penalty.getPenaltyType();
-        if ((penaltyType == PenaltyType.SUSPENDED_7_DAYS
-                || penaltyType == PenaltyType.PERMANENT_BAN)
-                && user.getStatus() != UserStatus.WITHDRAWN) {
-            user.changeStatus(UserStatus.SUSPENDED);
-        }
-
-        return penaltyType;
+        return penalty.getPenaltyType();
     }
 
-    @Transactional
-    public boolean refreshRestrictionStatus(Long userId) {
-        Users user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+    @Transactional(readOnly = true)
+    public boolean hasActiveRestriction(Long userId) {
+        UserStatus status = userRepository.findById(userId)
+                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND))
+                .getStatus();
 
-        if (user.getStatus() == UserStatus.WITHDRAWN) {
+        if (status == UserStatus.WITHDRAWN) {
             return false;
         }
 
@@ -81,26 +74,7 @@ public class UserReportPenaltyService {
                         now
                 );
 
-        if (permanentlyBanned || temporarilySuspended) {
-            if (user.getStatus() != UserStatus.SUSPENDED) {
-                user.changeStatus(UserStatus.SUSPENDED);
-            }
-            return true;
-        }
-
-        Optional<UserReportPenalty> latestTemporaryPenalty = penaltyRepository
-                .findTopByUser_UserIdAndPenaltyTypeOrderBySuspensionEndDateDesc(
-                        userId,
-                        PenaltyType.SUSPENDED_7_DAYS
-                );
-
-        if (latestTemporaryPenalty.isPresent() && user.getStatus() == UserStatus.SUSPENDED) {
-            UserStatus previousStatus = latestTemporaryPenalty.get().getPreviousStatus();
-            user.changeStatus(previousStatus == UserStatus.SUSPENDED ? UserStatus.ACTIVE : previousStatus);
-            return false;
-        }
-
-        return user.getStatus() == UserStatus.SUSPENDED;
+        return permanentlyBanned || temporarilySuspended;
     }
 
     public long countPenalties(Long userId) {
@@ -108,36 +82,36 @@ public class UserReportPenaltyService {
     }
 
     private UserReportPenalty determinePenalty(
-            Report report,
+            ReportCase reportCase,
             Users user,
             long approvedReportCount,
             LocalDateTime now
     ) {
-        if (report.getReportCategory().isImmediateBan()) {
+        if (reportCase.getDecidedCategory().isImmediateBan()) {
             return UserReportPenalty.permanentlyBanned(
-                    report,
+                    reportCase,
                     user,
-                    "즉시 제재 대상: " + report.getReportCategory().getDisplayName()
+                    "관리자 확정 즉시 제재 대상: " + reportCase.getDecidedCategory().getDisplayName()
             );
         }
 
         if (approvedReportCount == 1) {
-            return UserReportPenalty.warning(report, user, "신고 1회 승인");
+            return UserReportPenalty.warning(reportCase, user, "신고 객체 1건 승인");
         }
 
         if (approvedReportCount == 2) {
             return UserReportPenalty.suspended(
-                    report,
+                    reportCase,
                     user,
                     now.plusDays(7),
-                    "신고 누적 2회"
+                    "승인된 신고 객체 누적 2건"
             );
         }
 
         return UserReportPenalty.permanentlyBanned(
-                report,
+                reportCase,
                 user,
-                "신고 누적 3회 이상"
+                "승인된 신고 객체 누적 3건 이상"
         );
     }
 }
