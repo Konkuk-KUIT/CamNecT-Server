@@ -76,6 +76,14 @@ public class Users {
 
     public void changePasswordHash(String encoded) { this.passwordHash = encoded; }
 
+    public void ensureSuspensionRecord() {
+        if (this.suspensionRecord == null) {
+            this.suspensionRecord = UserSuspensionRecord.builder()
+                    .user(this)
+                    .build();
+        }
+    }
+
     // 신고 관련 메서드들 (SuspensionRecord에 위임)
     public void incrementReportCount() {
         this.suspensionRecord.incrementReportCount();
@@ -90,7 +98,8 @@ public class Users {
     }
 
     public boolean isSuspended() {
-        return suspensionRecord.isSuspended();
+        return suspensionRecord != null
+                && (suspensionRecord.isPermanentlyBanned() || suspensionRecord.isSuspended());
     }
 
     public void clearSuspension() {
@@ -102,7 +111,7 @@ public class Users {
     }
 
     public boolean isPermanentlyBanned() {
-        return suspensionRecord.isPermanentlyBanned();
+        return suspensionRecord != null && suspensionRecord.isPermanentlyBanned();
     }
 
     //회원 탈퇴

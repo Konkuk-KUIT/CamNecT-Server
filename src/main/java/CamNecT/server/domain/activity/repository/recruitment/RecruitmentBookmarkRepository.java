@@ -15,6 +15,8 @@ public interface RecruitmentBookmarkRepository extends JpaRepository<Recruitment
 
     boolean existsByUserIdAndRecruitId(Long userId, Long recruitId);
 
+    void deleteByRecruitId(Long recruitId);
+
     // =========================
     // 북마크한 모집글 - 최신순
     // return: [0]=TeamRecruitment, [1]=bookmarkCnt

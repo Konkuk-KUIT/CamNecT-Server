@@ -12,7 +12,7 @@ CREATE TABLE user_suspension_record (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_user_id (user_id),
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Create index for faster lookups
@@ -37,5 +37,4 @@ SELECT
     NULL AS ban_reason,
     NOW() AS created_at,
     NOW() AS updated_at
-FROM Users;
-
+FROM users;

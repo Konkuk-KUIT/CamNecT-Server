@@ -103,7 +103,7 @@ public class ReportService {
             reports = reportRepository.findAll(pageable);
         }
 
-        return reports.map(ReportResponse::from);
+        return reports.map(this::toResponseWithEvidenceUrl);
     }
 
     /**
@@ -179,13 +179,19 @@ public class ReportService {
         Users user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
-        // 정지 상태가 아니면 처리할 것 없음
-        if (!user.isSuspended()) {
+        // 영구 차단이면 유지 (해제 불가)
+        if (user.isPermanentlyBanned()) {
             return;
         }
 
-        // 영구 차단이면 유지 (해제 불가)
-        if (user.isPermanentlyBanned()) {
+        if (user.getSuspensionRecord() == null || user.getSuspensionRecord().getSuspensionEndDate() == null) {
+            return;
+        }
+
+        LocalDateTime suspensionEndDate = user.getSuspensionRecord().getSuspensionEndDate();
+
+        // 정지 만료일이 미래면 정지 유지
+        if (LocalDateTime.now().isBefore(suspensionEndDate)) {
             return;
         }
 
@@ -210,6 +216,7 @@ public class ReportService {
         // 영구 차단 대상 확인 (즉시 제재)
         if (report.getReportCategory().isImmediateBan()) {
             reportedUser.applyPermanentBan("즉시 제재 대상: " + report.getReportCategory().getDisplayName());
+            reportedUser.changeStatus(UserStatus.SUSPENDED);
             report.applyPenalty(PenaltyType.PERMANENT_BAN);
             userRepository.save(reportedUser);
             return;
@@ -237,11 +244,13 @@ public class ReportService {
             // 2회: 7일 정지
             LocalDateTime suspensionEndDate = LocalDateTime.now().plusDays(7);
             reportedUser.applySuspension(suspensionEndDate);
+            reportedUser.changeStatus(UserStatus.SUSPENDED);
             // TODO: 7일 정지 알림 발송 로직
             return PenaltyType.SUSPENDED_7_DAYS;
         } else if (reportCount >= 3) {
             // 3회 이상: 영구 차단
             reportedUser.applyPermanentBan("신고 누적 3회로 인한 영구 차단");
+            reportedUser.changeStatus(UserStatus.SUSPENDED);
             // TODO: 영구 차단 알림 발송 로직
             return PenaltyType.PERMANENT_BAN;
         }
@@ -257,7 +266,7 @@ public class ReportService {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
-        return ReportResponse.from(report);
+        return toResponseWithEvidenceUrl(report);
     }
 
     /**
@@ -276,5 +285,10 @@ public class ReportService {
             return null;
         }
         return publicUrlIssuer.issueImagePublicUrl(storageKey);
+    }
+
+    private ReportResponse toResponseWithEvidenceUrl(Report report) {
+        String evidenceImageUrl = issueEvidenceImageUrl(report.getEvidenceImageUrl());
+        return ReportResponse.from(report, evidenceImageUrl);
     }
 }

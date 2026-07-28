@@ -274,6 +274,7 @@ public class RecruitmentService {
      * 팀원 모집글 삭제
      * - 작성자 또는 관리자만 삭제 가능
      * - 모집글은 삭제됨
+     * - 모집글과 연관된 북마크(토글)도 함께 삭제됨
      * - ChatRequest와 ChatRoom은 유지됨 (recruitmentId는 null이 됨)
      * - ChatRoom 조회 시 recruitment 정보는 null 반환
      */
@@ -293,7 +294,10 @@ public class RecruitmentService {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
 
-        // 3. 모집글 삭제 (ChatRequest/ChatRoom은 유지)
+        // 3. 모집글 연관 북마크(토글) 삭제
+        bookmarkRepository.deleteByRecruitId(recruitId);
+
+        // 4. 모집글 삭제 (ChatRequest/ChatRoom은 유지)
         recruitmentRepository.delete(recruitment);
     }
 

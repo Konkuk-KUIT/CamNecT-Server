@@ -20,6 +20,10 @@ public record ReportResponse(
 ) {
     // 엔티티 -> Record 변환 메서드
     public static ReportResponse from(Report report) {
+        return from(report, report.getEvidenceImageUrl());
+    }
+
+    public static ReportResponse from(Report report, String evidenceImageUrl) {
         return new ReportResponse(
                 report.getReportId(),
                 report.getReporterId(),
@@ -29,7 +33,7 @@ public record ReportResponse(
                 report.getReportCategory(),
                 report.getTitle(),
                 report.getContext(),
-                report.getEvidenceImageUrl(),
+                evidenceImageUrl,
                 report.getStatus(),
                 report.getAppliedPenalty(),
                 report.getCreatedAt(),

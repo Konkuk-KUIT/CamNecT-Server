@@ -16,7 +16,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -144,7 +143,7 @@ public class RecruitmentController {
 
     @Operation(summary = "팀원 모집글 삭제", description = "팀원 모집글을 삭제합니다. 작성자 또는 관리자만 삭제할 수 있습니다. 삭제 후에도 관련 채팅방은 유지됩니다.")
     @ApiResponses({
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "모집글이 성공적으로 삭제되었습니다."),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "모집글이 성공적으로 삭제되었습니다."),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 모집글 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입 / 46101 모집글 작성자가 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -152,11 +151,11 @@ public class RecruitmentController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "50000 모집글 삭제 또는 내부 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @DeleteMapping("/{recruitmentId}")
-    public ResponseEntity<Void> deleteRecruitment(
+    public ApiResponse<Void> deleteRecruitment(
             @PathVariable @Positive Long recruitmentId,
             @UserId Long userId
     ) {
         recruitmentService.deleteRecruitment(userId, recruitmentId);
-        return ResponseEntity.noContent().build();
+        return ApiResponse.success(null);
     }
 }
