@@ -6,7 +6,10 @@ ALTER TABLE report
     ADD COLUMN applied_penalty VARCHAR(30) NULL,
     ADD COLUMN target_key VARCHAR(100) NULL,
     ADD COLUMN case_id BIGINT NULL,
-    ADD COLUMN submission_slot BIGINT NOT NULL DEFAULT 0;
+    ADD COLUMN submission_slot BIGINT NOT NULL DEFAULT 0,
+    MODIFY COLUMN post_type VARCHAR(40) NULL,
+    MODIFY COLUMN report_category VARCHAR(40) NOT NULL,
+    MODIFY COLUMN status VARCHAR(20) NOT NULL;
 
 -- Normalize legacy display values to enum names.
 UPDATE report

@@ -16,7 +16,8 @@ import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
-import CamNecT.server.global.storage.service.PublicUrlIssuer;
+import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
+import CamNecT.server.global.storage.service.PresignEngine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +27,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
@@ -41,7 +43,7 @@ class ReportServiceTest {
     @Mock ReportCaseRepository reportCaseRepository;
     @Mock UserReportPenaltyRepository penaltyRepository;
     @Mock UserRepository userRepository;
-    @Mock PublicUrlIssuer publicUrlIssuer;
+    @Mock PresignEngine presignEngine;
     @Mock ReportAttachmentService reportAttachmentService;
     @Mock PostService postService;
     @Mock CommentService commentService;
@@ -59,7 +61,7 @@ class ReportServiceTest {
                 reportCaseRepository,
                 penaltyRepository,
                 userRepository,
-                publicUrlIssuer,
+                presignEngine,
                 reportAttachmentService,
                 postService,
                 commentService,
@@ -183,6 +185,38 @@ class ReportServiceTest {
         assertThat(first.getStatus()).isEqualTo(ReportStatus.RESOLVED);
         assertThat(second.getStatus()).isEqualTo(ReportStatus.RESOLVED);
         verify(userReportPenaltyService, times(1)).applyPenalty(reportCase);
+    }
+
+    @Test
+    void adminCanPresignEvidenceForSubmissionInCase() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 2L, TargetType.USER);
+        Report report = new Report(
+                reportCase,
+                1L,
+                2L,
+                null,
+                TargetType.USER,
+                ReportCategory.OTHER,
+                "title",
+                "context",
+                "reports/1/evidence.png"
+        );
+        ReflectionTestUtils.setField(report, "reportId", 101L);
+        PresignDownloadResponse expected = new PresignDownloadResponse(
+                "https://s3.example/presigned",
+                LocalDateTime.now(),
+                "reports/1/evidence.png"
+        );
+
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportRepository.findByReportIdAndReportCase_CaseId(101L, 10L))
+                .thenReturn(Optional.of(report));
+        when(presignEngine.presignDownload("reports/1/evidence.png", null, null))
+                .thenReturn(expected);
+
+        assertThat(service.getEvidenceDownloadUrl(9L, 10L, 101L)).isEqualTo(expected);
     }
 
     private static ReportCreateRequest request(Long reportedUserId, Long postId, TargetType targetType) {

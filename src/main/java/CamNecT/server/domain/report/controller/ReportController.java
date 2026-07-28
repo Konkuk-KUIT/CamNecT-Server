@@ -13,6 +13,7 @@ import CamNecT.server.global.common.auth.UserId;
 import CamNecT.server.global.common.response.ApiResponse;
 import CamNecT.server.global.common.response.ErrorResponse;
 import CamNecT.server.global.storage.dto.request.PresignUploadRequest;
+import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
 import CamNecT.server.global.storage.dto.response.PresignUploadResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -183,7 +184,7 @@ public class ReportController {
      */
     @Operation(
             summary = "신고 상세 조회 (관리자)",
-            description = "대상 작성자, 개별 신고 제출 내역, 증거 이미지와 대상 사용자의 기존 제재 이력을 조회합니다."
+            description = "대상 작성자, 개별 신고 제출 내역, 증거 첨부 여부와 대상 사용자의 기존 제재 이력을 조회합니다. 증거 파일은 별도 presigned download API로 조회합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -217,6 +218,18 @@ public class ReportController {
             @UserId Long userId,
             @PathVariable Long caseId) {
         return ApiResponse.success(reportService.getReportDetail(userId, caseId));
+    }
+
+    @Operation(
+            summary = "신고 증거 파일 다운로드 URL 발급",
+            description = "관리자가 특정 신고 제출 건의 증거 파일을 확인할 수 있도록 짧게 유효한 presigned download URL을 발급합니다."
+    )
+    @GetMapping("/admin/{caseId}/submissions/{reportId}/evidence/download-url")
+    public ApiResponse<PresignDownloadResponse> getEvidenceDownloadUrl(
+            @UserId Long userId,
+            @PathVariable Long caseId,
+            @PathVariable Long reportId) {
+        return ApiResponse.success(reportService.getEvidenceDownloadUrl(userId, caseId, reportId));
     }
 
     /**

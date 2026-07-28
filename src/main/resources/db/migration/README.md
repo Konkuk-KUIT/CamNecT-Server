@@ -1,10 +1,12 @@
 # Flyway baseline policy
 
-This service onboards an existing, Hibernate-managed schema to Flyway.
+This service onboards an existing, Hibernate-managed schema to Flyway while also supporting an empty MySQL database.
 
-- Version `0` is a Flyway baseline marker configured in `application.yml`; it is not a SQL migration.
-- On the first deployment to a non-empty database, Flyway records baseline version `0` and then executes `V1`.
+- `V0__Initial_schema.sql` is the immutable schema snapshot from the entity model immediately before the report update.
+- On an empty MySQL database, Flyway executes `V0` and then the report-domain delta in `V1`.
+- On the first deployment to an existing non-empty database, `baseline-on-migrate` records version `0` without executing V0 and then executes `V1`.
+- The existing database must match the pre-update entity model before V1 is deployed.
 - All schema changes after this rollout must be added as immutable, sequential migrations.
-- Tests disable Flyway because their H2 schema is created from JPA entities.
+- Local and test H2 profiles disable Flyway because their disposable schema is created from JPA entities; the migration SQL targets MySQL.
 
-This migration set assumes the pre-Flyway production schema already exists.
+Do not edit V0 or V1 after deployment. Add a new migration instead.

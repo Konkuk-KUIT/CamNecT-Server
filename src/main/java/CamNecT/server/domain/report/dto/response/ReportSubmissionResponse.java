@@ -11,17 +11,17 @@ public record ReportSubmissionResponse(
         ReportCategory submittedCategory,
         String title,
         String context,
-        String evidenceImageUrl,
+        boolean hasEvidence,
         LocalDateTime createdAt
 ) {
-    public static ReportSubmissionResponse from(Report report, String evidenceImageUrl) {
+    public static ReportSubmissionResponse from(Report report) {
         return new ReportSubmissionResponse(
                 report.getReportId(),
                 report.getReporterId(),
                 report.getReportCategory(),
                 report.getTitle(),
                 report.getContext(),
-                evidenceImageUrl,
+                report.getEvidenceImageUrl() != null && !report.getEvidenceImageUrl().isBlank(),
                 report.getCreatedAt()
         );
     }

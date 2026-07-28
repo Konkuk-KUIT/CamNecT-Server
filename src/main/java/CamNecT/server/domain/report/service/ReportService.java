@@ -23,7 +23,8 @@ import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCo
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
-import CamNecT.server.global.storage.service.PublicUrlIssuer;
+import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
+import CamNecT.server.global.storage.service.PresignEngine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -47,7 +48,7 @@ public class ReportService {
     private final ReportCaseRepository reportCaseRepository;
     private final UserReportPenaltyRepository penaltyRepository;
     private final UserRepository userRepository;
-    private final PublicUrlIssuer publicUrlIssuer;
+    private final PresignEngine presignEngine;
     private final ReportAttachmentService reportAttachmentService;
     private final PostService postService;
     private final CommentService commentService;
@@ -240,10 +241,7 @@ public class ReportService {
         List<ReportSubmissionResponse> submissions = reportRepository
                 .findAllByReportCase_CaseIdOrderByCreatedAtAsc(caseId)
                 .stream()
-                .map(report -> ReportSubmissionResponse.from(
-                        report,
-                        issueEvidenceImageUrl(report.getEvidenceImageUrl())
-                ))
+                .map(ReportSubmissionResponse::from)
                 .toList();
 
         LocalDateTime now = LocalDateTime.now(clock);
@@ -264,15 +262,16 @@ public class ReportService {
         return userReportPenaltyService.countPenalties(userId);
     }
 
-    /**
-     * 증거 이미지 저장 키로부터 유효한 공개 URL 발급
-     * 이미지 확장자 유효성 확인 후 공개 URL 반환
-     */
-    public String issueEvidenceImageUrl(String storageKey) {
-        if (!StringUtils.hasText(storageKey)) {
-            return null;
+    public PresignDownloadResponse getEvidenceDownloadUrl(Long adminId, Long caseId, Long reportId) {
+        validateAdmin(adminId);
+
+        Report report = reportRepository.findByReportIdAndReportCase_CaseId(reportId, caseId)
+                .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
+        if (!StringUtils.hasText(report.getEvidenceImageUrl())) {
+            throw new CustomException(ReportErrorCode.REPORT_EVIDENCE_NOT_FOUND);
         }
-        return publicUrlIssuer.issueImagePublicUrl(storageKey);
+
+        return presignEngine.presignDownload(report.getEvidenceImageUrl(), null, null);
     }
 
 }
