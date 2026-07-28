@@ -1,5 +1,6 @@
 package CamNecT.server.global.common.auth;
 
+import CamNecT.server.domain.report.service.UserReportPenaltyService;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
@@ -17,7 +18,8 @@ import static org.mockito.Mockito.when;
 class AccountAccessGuardTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
-    private final AccountAccessGuard guard = new AccountAccessGuard(userRepository);
+    private final UserReportPenaltyService userReportPenaltyService = mock(UserReportPenaltyService.class);
+    private final AccountAccessGuard guard = new AccountAccessGuard(userRepository, userReportPenaltyService);
 
     @Test
     void allowsAccessibleAccount() {
@@ -36,6 +38,19 @@ class AccountAccessGuardTest {
                 () -> guard.requireAccessible(1L));
 
         assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+    }
+
+    @Test
+    void rejectsActiveAccountWhileReportRestrictionIsActive() {
+        Users user = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userReportPenaltyService.hasActiveRestriction(1L)).thenReturn(true);
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> guard.requireAccessible(1L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test

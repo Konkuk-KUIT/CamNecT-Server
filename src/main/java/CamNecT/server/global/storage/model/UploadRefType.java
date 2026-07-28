@@ -5,5 +5,6 @@ public enum UploadRefType {
     PORTFOLIO,
     ACTIVITY,
     VERIFICATION,
-    USER_PROFILE
+    USER_PROFILE,
+    REPORT
 }

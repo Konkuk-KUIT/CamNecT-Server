@@ -69,7 +69,6 @@ public class Users {
 
     public void changePasswordHash(String encoded) { this.passwordHash = encoded; }
 
-
     //회원 탈퇴
     public void withdrawAnonymize(
             String name,

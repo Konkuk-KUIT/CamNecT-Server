@@ -16,6 +16,8 @@ import CamNecT.server.domain.community.repository.Comments.CommentLikesRepositor
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostStatsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
+import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
@@ -39,6 +41,7 @@ public class CommentServiceImpl implements CommentService {
     private final CommentsRepository commentsRepository;
     private final PostStatsRepository postStatsRepository;
     private final CommentLikesRepository commentLikesRepository;
+    private final UserRepository userRepository;
     private final AcceptedCommentsRepository acceptedCommentsRepository;
     private final AuthorAssembler  authorAssembler;
     private final ApplicationEventPublisher eventPublisher;
@@ -145,7 +148,11 @@ public class CommentServiceImpl implements CommentService {
         requirePublished(comment.getPost());
         requirePublished(comment);
 
-        if (!Objects.equals(comment.getUserId(), userId)) {
+        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isOwner = Objects.equals(comment.getUserId(), userId);
+
+        //작성자 또는 관리자만 삭제 가능
+        if (!(isAdmin || isOwner)) {
             throw new CustomException(CommunityErrorCode.COMMENT_FORBIDDEN);
         }
         if (acceptedCommentsRepository.existsByComment_Id(commentId)) {

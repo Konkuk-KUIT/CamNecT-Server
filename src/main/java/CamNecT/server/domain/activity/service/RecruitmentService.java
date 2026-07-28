@@ -17,6 +17,7 @@ import CamNecT.server.domain.chat.model.ChatRequest;
 import CamNecT.server.domain.chat.repository.ChatRequestRepository;
 import CamNecT.server.domain.community.dto.AuthorDto;
 import CamNecT.server.domain.community.service.AuthorAssembler;
+import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
@@ -267,6 +268,38 @@ public class RecruitmentService {
         );
 
         for (ChatRequest r : targets) if (r.getStatus() == ChatRequest.RequestStatus.WAITING) r.reject();
+    }
+
+    /**
+     * 팀원 모집글 삭제
+     * - 작성자 또는 관리자만 삭제 가능
+     * - 모집글은 삭제됨
+     * - 모집글과 연관된 북마크(토글)도 함께 삭제됨
+     * - ChatRequest와 ChatRoom은 유지됨 (recruitmentId는 null이 됨)
+     * - ChatRoom 조회 시 recruitment 정보는 null 반환
+     */
+    @Transactional
+    public void deleteRecruitment(Long userId, Long recruitId) {
+        requireAuthenticatedUser(userId);
+        
+        // 1. 모집글 조회
+        TeamRecruitment recruitment = recruitmentRepository.findById(recruitId)
+                .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
+
+        // 2. 작성자 본인 또는 관리자 확인
+        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAuthor = Objects.equals(recruitment.getUserId(), userId);
+
+        if (!isAdmin && !isAuthor) {
+            throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
+        }
+
+        // 3. 모집글 연관 지원서와 북마크 삭제
+        teamApplicationRepository.deleteByRecruitId(recruitId);
+        bookmarkRepository.deleteByRecruitId(recruitId);
+
+        // 4. 모집글 삭제 (ChatRequest/ChatRoom은 유지)
+        recruitmentRepository.delete(recruitment);
     }
 
     private Users requireAuthenticatedUser(Long userId) {

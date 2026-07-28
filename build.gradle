@@ -67,6 +67,9 @@ dependencies {
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
     compileOnly 'org.springframework.boot:spring-boot-configuration-processor'
 
+    // Flyway - Database migration tool
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
 
     // WebSocket
     implementation("org.springframework.boot:spring-boot-starter-websocket")

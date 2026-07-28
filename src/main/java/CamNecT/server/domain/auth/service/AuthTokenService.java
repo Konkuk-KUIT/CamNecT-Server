@@ -1,6 +1,7 @@
 package CamNecT.server.domain.auth.service;
 
 import CamNecT.server.domain.auth.dto.others.TokenRefreshResponse;
+import CamNecT.server.domain.report.service.UserReportPenaltyService;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
@@ -24,6 +25,7 @@ public class AuthTokenService {
     private final JwtUtil jwtUtil;
     private final UserRepository userRepository;
     private final UserRefreshTokenRepository refreshTokenRepository;
+    private final UserReportPenaltyService userReportPenaltyService;
 
     @Transactional
     public TokenRefreshResponse refreshAccessToken(String rawRefreshToken) {
@@ -37,7 +39,8 @@ public class AuthTokenService {
         Long userId = jwtUtil.getUserId(refreshToken);
         Users user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
-        if (user.getStatus() == UserStatus.SUSPENDED) {
+        if (user.getStatus() == UserStatus.SUSPENDED
+                || userReportPenaltyService.hasActiveRestriction(userId)) {
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
         if (user.getStatus() == UserStatus.WITHDRAWN) {

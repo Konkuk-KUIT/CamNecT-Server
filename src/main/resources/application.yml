@@ -65,6 +65,9 @@ app:
         - application/pdf
     thumbnail:
       max-file-size-mb: 5
+  report:
+    evidence:
+      max-file-size-mb: 5
   point:
     reward:
       comment-selection: 200
@@ -116,9 +119,16 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:${MYSQL_USER_PASS:camnect1234}}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: "0"
+    baseline-description: pre-flyway-schema
+    validate-on-migrate: true
+
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:update}
+      ddl-auto: validate
     open-in-view: false
     show-sql: false #로그가 sql문으로 더러워지는 것을 방지하기 위해 추가(26.05.15)
     properties:

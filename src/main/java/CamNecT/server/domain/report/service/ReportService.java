@@ -1,31 +1,62 @@
 package CamNecT.server.domain.report.service;
 
+import CamNecT.server.domain.activity.service.ActivityService;
+import CamNecT.server.domain.activity.service.RecruitmentService;
+import CamNecT.server.domain.community.service.CommentService;
+import CamNecT.server.domain.community.service.PostService;
 import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
-import CamNecT.server.domain.report.dto.response.ReportResponse;
-import CamNecT.server.domain.report.model.Report;
-import CamNecT.server.domain.report.model.ReportStatus;
-import CamNecT.server.domain.report.model.TargetType;
+import CamNecT.server.domain.report.dto.request.ReportProcessRequest;
+import CamNecT.server.domain.report.dto.response.ReportCaseDetailResponse;
+import CamNecT.server.domain.report.dto.response.ReportCaseSummaryResponse;
+import CamNecT.server.domain.report.dto.response.ReportPenaltyResponse;
+import CamNecT.server.domain.report.dto.response.ReportSubmissionResponse;
+import CamNecT.server.domain.report.model.*;
+import CamNecT.server.domain.report.repository.ReportCaseRepository;
 import CamNecT.server.domain.report.repository.ReportRepository;
-
+import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.BaseErrorCode;
+import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
+import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
+import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
+import CamNecT.server.global.storage.service.PresignEngine;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
+@Slf4j
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class ReportService {
 
     private final ReportRepository reportRepository;
+    private final ReportCaseRepository reportCaseRepository;
+    private final UserReportPenaltyRepository penaltyRepository;
     private final UserRepository userRepository;
+    private final PresignEngine presignEngine;
+    private final ReportAttachmentService reportAttachmentService;
+    private final PostService postService;
+    private final CommentService commentService;
+    private final ActivityService activityService;
+    private final RecruitmentService recruitmentService;
+    private final UserReportPenaltyService userReportPenaltyService;
+    private final ReportTargetResolver reportTargetResolver;
+    private final Clock clock;
 
     // 관리자 검증 공통 메서드
     private void validateAdmin(Long userId) {
@@ -40,65 +71,206 @@ public class ReportService {
      */
     @Transactional
     public Long createReport(Long reporterId, ReportCreateRequest dto) {
+        ReportTargetResolver.ResolvedTarget target = reportTargetResolver.resolve(reporterId, dto);
+        if (reporterId.equals(target.author().getUserId())) {
+            throw new CustomException(ReportErrorCode.REPORT_SELF_NOT_ALLOWED);
+        }
+
+        userRepository.lockUserRow(target.author().getUserId());
+        Users targetAuthor = userRepository.findById(target.author().getUserId())
+                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+
+        ReportCase reportCase = reportCaseRepository.findByTargetKey(target.targetKey())
+                .orElseGet(() -> reportCaseRepository.saveAndFlush(ReportCase.open(
+                        target.targetKey(),
+                        targetAuthor,
+                        target.targetId(),
+                        dto.postType()
+                )));
+
+        if (reportCase.getStatus() != ReportStatus.RECEIVED) {
+            throw new CustomException(ReportErrorCode.REPORT_CASE_CLOSED);
+        }
+
+        if (reportRepository.existsByReporterIdAndReportCase_CaseId(reporterId, reportCase.getCaseId())) {
+            throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
+        }
+
+        // 증거 이미지는 일단 presign된 키로 저장, 나중에 consume 처리
         Report report = new Report(
+                reportCase,
                 reporterId,
-                dto.reportedUserId(),
-                dto.reportedPostId(),
+                targetAuthor.getUserId(),
+                dto.postType() == TargetType.USER ? null : target.targetId(),
                 dto.postType(),
                 dto.reportCategory(),
                 dto.title(),
-                dto.context()
+                dto.context(),
+                dto.evidenceImageUrl()
         );
-        return reportRepository.save(report).getReportId();
+        Report savedReport;
+        try {
+            savedReport = reportRepository.saveAndFlush(report);
+        } catch (DataIntegrityViolationException e) {
+            throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
+        }
+
+        reportCase.addReport();
+        
+        // 증거 이미지가 있으면 최종 경로로 이동 (consume)
+        if (StringUtils.hasText(dto.evidenceImageUrl())) {
+            String finalEvidenceUrl = reportAttachmentService.applyOnReportCreate(
+                    reporterId,
+                    savedReport.getReportId(),
+                    dto.evidenceImageUrl()
+            );
+            savedReport.updateEvidenceImageUrl(finalEvidenceUrl);
+        }
+        
+        return savedReport.getReportId();
     }
 
     /**
      * 2. 관리자용 목록 조회
      */
-    public Page<ReportResponse> findAllReports(Long userId, TargetType type, ReportStatus status, Pageable pageable) {
+    public Page<ReportCaseSummaryResponse> findAllReports(Long userId, TargetType type, ReportStatus status, Pageable pageable) {
         validateAdmin(userId);
-
-        Page<Report> reports;
-
-        if (type != null && status != null) {
-            reports = reportRepository.findAllByPostTypeAndStatus(type, status, pageable);
-        } else if (status != null) {
-            reports = reportRepository.findAllByStatus(status, pageable);
-        } else {
-            reports = reportRepository.findAll(pageable);
-        }
-
-        return reports.map(ReportResponse::from);
+        return reportCaseRepository.findAllByFilters(type, status, pageable)
+                .map(ReportCaseSummaryResponse::from);
     }
 
     /**
      * 3. 관리자 신고 처리 (승인/반려)
      */
     @Transactional
-    public void processReport(Long userId, Long reportId, ReportStatus newStatus) {
+    public void processReport(Long userId, Long caseId, ReportProcessRequest request) {
         validateAdmin(userId);
 
-        Report report = reportRepository.findById(reportId)
+        ReportStatus newStatus = request.status();
+        if (newStatus != ReportStatus.RESOLVED && newStatus != ReportStatus.REJECTED) {
+            throw new CustomException(ReportErrorCode.REPORT_INVALID_STATUS);
+        }
+        if (newStatus == ReportStatus.RESOLVED && request.decidedCategory() == null) {
+            throw new CustomException(ReportErrorCode.REPORT_CATEGORY_REQUIRED);
+        }
+
+        ReportCase caseSnapshot = reportCaseRepository.findById(caseId)
+                .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
+        userRepository.lockUserRow(caseSnapshot.getReportedUser().getUserId());
+        ReportCase reportCase = reportCaseRepository.findByIdForUpdate(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
-        report.updateStatus(newStatus);
+        if (reportCase.getStatus() != ReportStatus.RECEIVED) {
+            throw new CustomException(ReportErrorCode.REPORT_ALREADY_PROCESSED);
+        }
+
+        List<Report> submissions = reportRepository
+                .findAllByReportCase_CaseIdOrderByCreatedAtAsc(caseId);
+        LocalDateTime now = LocalDateTime.now(clock);
 
         if (newStatus == ReportStatus.RESOLVED) {
-            handleViolation(report);
+            reportCase.decideCategory(request.decidedCategory());
+            PenaltyType penaltyType = userReportPenaltyService.applyPenalty(reportCase);
+            deleteReportedContent(userId, reportCase);
+            reportCase.resolve(userId, request.decidedCategory(), penaltyType, request.reason(), now);
+            submissions.forEach(report -> {
+                report.applyPenalty(penaltyType);
+                report.updateStatus(ReportStatus.RESOLVED);
+            });
+            return;
+        }
+
+        reportCase.reject(userId, request.reason(), now);
+        submissions.forEach(report -> report.updateStatus(ReportStatus.REJECTED));
+    }
+
+    /**
+     * 신고된 게시글 삭제
+     */
+    protected void deleteReportedContent(Long adminId, ReportCase reportCase) {
+        if (reportCase.getTargetType() == TargetType.USER) {
+            return;
+        }
+
+        Long postId = reportCase.getTargetId();
+        TargetType targetType = reportCase.getTargetType();
+
+        try {
+            switch (targetType) {
+                case COMMUNITY -> postService.delete(adminId, postId);
+                case COMMUNITY_COMMENT -> commentService.delete(adminId, postId);
+                case ACTIVITY -> activityService.delete(postId, adminId);
+                case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitment(adminId, postId);
+                case USER -> log.info("Skipping account deletion in report processing. caseId={}", reportCase.getCaseId());
+                case CHAT -> log.info("Skipping chat deletion in report processing. caseId={}", reportCase.getCaseId());
+            }
+        } catch (CustomException e) {
+            if (isIgnorableDeletionFailure(e.getErrorCode())) {
+                log.warn(
+                        "Reported content already missing. continue report process. caseId={}, targetType={}, postId={}, code={}",
+                        reportCase.getCaseId(), targetType, postId, e.getErrorCode().getCode()
+                );
+                return;
+            }
+
+            log.error(
+                    "Failed to delete reported content. caseId={}, targetType={}, postId={}, code={}",
+                    reportCase.getCaseId(), targetType, postId, e.getErrorCode().getCode(), e
+            );
+            throw e;
         }
     }
 
-    private void handleViolation(Report report) {
-        switch (report.getPostType()) {
-            case COMMUNITY -> {
-                // communityRepository.findById(report.getReportedPostId())를 통한 블라인드 처리 로직
-            }
-            case ACTIVITY -> {
-                // activityRepository.findById(report.getReportedPostId())를 통한 블라인드 처리 로직
-            }
-            case USER -> {
-                // 유저 경고 횟수 누적 또는 정지 로직
-            }
-        }
+    private boolean isIgnorableDeletionFailure(BaseErrorCode errorCode) {
+        return errorCode == CommunityErrorCode.POST_NOT_FOUND
+                || errorCode == CommunityErrorCode.COMMENT_NOT_FOUND
+                || errorCode == ActivityErrorCode.ACTIVITY_NOT_FOUND
+                || errorCode == ActivityErrorCode.RECRUITMENT_NOT_FOUND;
     }
+
+    /**
+     * 신고 상세 조회 (관리자용)
+     */
+    public ReportCaseDetailResponse getReportDetail(Long userId, Long caseId) {
+        validateAdmin(userId);
+
+        ReportCase reportCase = reportCaseRepository.findById(caseId)
+                .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
+
+        List<ReportSubmissionResponse> submissions = reportRepository
+                .findAllByReportCase_CaseIdOrderByCreatedAtAsc(caseId)
+                .stream()
+                .map(ReportSubmissionResponse::from)
+                .toList();
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<ReportPenaltyResponse> existingPenalties = penaltyRepository
+                .findAllByUser_UserIdOrderByCreatedAtDesc(reportCase.getReportedUser().getUserId())
+                .stream()
+                .map(penalty -> ReportPenaltyResponse.from(penalty, now))
+                .toList();
+
+        return ReportCaseDetailResponse.from(reportCase, submissions, existingPenalties);
+    }
+
+    /**
+     * 특정 유저의 신고 누적 수 조회
+     */
+    public long getResolvedReportCount(Long adminId, Long userId) {
+        validateAdmin(adminId);
+        return userReportPenaltyService.countPenalties(userId);
+    }
+
+    public PresignDownloadResponse getEvidenceDownloadUrl(Long adminId, Long caseId, Long reportId) {
+        validateAdmin(adminId);
+
+        Report report = reportRepository.findByReportIdAndReportCase_CaseId(reportId, caseId)
+                .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
+        if (!StringUtils.hasText(report.getEvidenceImageUrl())) {
+            throw new CustomException(ReportErrorCode.REPORT_EVIDENCE_NOT_FOUND);
+        }
+
+        return presignEngine.presignDownload(report.getEvidenceImageUrl(), null, null);
+    }
+
 }
