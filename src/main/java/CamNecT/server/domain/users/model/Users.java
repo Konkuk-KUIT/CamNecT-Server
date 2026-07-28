@@ -47,13 +47,6 @@ public class Users {
     @Column(name = "role", nullable = false, length = 20)
     private UserRole role = UserRole.USER;
 
-    @Builder.Default
-    @Column(name = "verification_complete_pending", nullable = false)
-    private boolean verificationCompletePending = false;
-
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
-    private UserSuspensionRecord suspensionRecord;
-
     @CreationTimestamp // 생성 시 자동으로 시간 입력
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -75,44 +68,6 @@ public class Users {
     }
 
     public void changePasswordHash(String encoded) { this.passwordHash = encoded; }
-
-    public void ensureSuspensionRecord() {
-        if (this.suspensionRecord == null) {
-            this.suspensionRecord = UserSuspensionRecord.builder()
-                    .user(this)
-                    .build();
-        }
-    }
-
-    // 신고 관련 메서드들 (SuspensionRecord에 위임)
-    public void incrementReportCount() {
-        this.suspensionRecord.incrementReportCount();
-    }
-
-    public void applySuspension(LocalDateTime endDate) {
-        this.suspensionRecord.applySuspension(endDate);
-    }
-
-    public void applyPermanentBan(String reason) {
-        this.suspensionRecord.applyPermanentBan(reason);
-    }
-
-    public boolean isSuspended() {
-        return suspensionRecord != null
-                && (suspensionRecord.isPermanentlyBanned() || suspensionRecord.isSuspended());
-    }
-
-    public void clearSuspension() {
-        suspensionRecord.clearSuspension();
-    }
-
-    public int getReportCount() {
-        return suspensionRecord.getReportCount();
-    }
-
-    public boolean isPermanentlyBanned() {
-        return suspensionRecord != null && suspensionRecord.isPermanentlyBanned();
-    }
 
     //회원 탈퇴
     public void withdrawAnonymize(

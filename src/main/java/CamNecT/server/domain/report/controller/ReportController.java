@@ -305,7 +305,7 @@ public class ReportController {
     public ApiResponse<Long> getReportCount(
             @UserId Long userId,
             @PathVariable Long targetUserId) {
-        long reportCount = reportService.getResolvedReportCount(targetUserId);
+        long reportCount = reportService.getResolvedReportCount(userId, targetUserId);
         return ApiResponse.success(reportCount);
     }
 }

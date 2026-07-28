@@ -29,6 +29,9 @@ public class Report {
 
     private Long reportedPostId; // 신고 글 ID (NULL 허용)
 
+    @Column(name = "target_key", nullable = false, length = 100)
+    private String targetKey;
+
     @Enumerated(EnumType.STRING)
     private TargetType postType; // 신고 글 타입 (COMMUNITY, ACTIVITY, USER 등)
 
@@ -66,6 +69,7 @@ public class Report {
         this.reportedUserId = reportedUserId;
         this.reportedPostId = reportedPostId;
         this.postType = postType;
+        this.targetKey = targetKeyFor(postType, reportedUserId, reportedPostId);
         this.reportCategory = reportCategory;
         this.title = title;
         this.context = context;
@@ -83,5 +87,10 @@ public class Report {
 
     public void updateEvidenceImageUrl(String evidenceImageUrl) {
         this.evidenceImageUrl = evidenceImageUrl;
+    }
+
+    public static String targetKeyFor(TargetType postType, Long reportedUserId, Long reportedPostId) {
+        Long targetId = postType == TargetType.USER ? reportedUserId : reportedPostId;
+        return postType.name() + ":" + targetId;
     }
 }

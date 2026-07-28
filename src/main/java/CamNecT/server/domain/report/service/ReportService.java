@@ -9,7 +9,6 @@ import CamNecT.server.domain.report.dto.response.ReportResponse;
 import CamNecT.server.domain.report.model.*;
 import CamNecT.server.domain.report.repository.ReportRepository;
 import CamNecT.server.domain.users.model.UserRole;
-import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
@@ -21,13 +20,12 @@ import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-import java.time.LocalDateTime;
 
 @Service
 @Slf4j
@@ -43,6 +41,7 @@ public class ReportService {
     private final CommentService commentService;
     private final ActivityService activityService;
     private final RecruitmentService recruitmentService;
+    private final UserReportPenaltyService userReportPenaltyService;
 
     // 관리자 검증 공통 메서드
     private void validateAdmin(Long userId) {
@@ -57,9 +56,23 @@ public class ReportService {
      */
     @Transactional
     public Long createReport(Long reporterId, ReportCreateRequest dto) {
-        // 신고 대상 사용자 존재 확인
-        Users reportedUser = userRepository.findById(dto.reportedUserId())
+        if (reporterId.equals(dto.reportedUserId())) {
+            throw new CustomException(ReportErrorCode.REPORT_SELF_NOT_ALLOWED);
+        }
+
+        validateTarget(dto);
+
+        userRepository.findById(dto.reportedUserId())
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+
+        String targetKey = Report.targetKeyFor(
+                dto.postType(),
+                dto.reportedUserId(),
+                dto.reportedPostId()
+        );
+        if (reportRepository.existsByReporterIdAndTargetKey(reporterId, targetKey)) {
+            throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
+        }
 
         // 증거 이미지는 일단 presign된 키로 저장, 나중에 consume 처리
         Report report = new Report(
@@ -72,7 +85,12 @@ public class ReportService {
                 dto.context(),
                 dto.evidenceImageUrl()
         );
-        Report savedReport = reportRepository.save(report);
+        Report savedReport;
+        try {
+            savedReport = reportRepository.saveAndFlush(report);
+        } catch (DataIntegrityViolationException e) {
+            throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
+        }
         
         // 증거 이미지가 있으면 최종 경로로 이동 (consume)
         if (StringUtils.hasText(dto.evidenceImageUrl())) {
@@ -113,15 +131,24 @@ public class ReportService {
     public void processReport(Long userId, Long reportId, ReportStatus newStatus) {
         validateAdmin(userId);
 
-        Report report = reportRepository.findById(reportId)
+        if (newStatus != ReportStatus.RESOLVED && newStatus != ReportStatus.REJECTED) {
+            throw new CustomException(ReportErrorCode.REPORT_INVALID_STATUS);
+        }
+
+        Report report = reportRepository.findByIdForUpdate(reportId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
-        report.updateStatus(newStatus);
+        if (report.getStatus() != ReportStatus.RECEIVED) {
+            throw new CustomException(ReportErrorCode.REPORT_ALREADY_PROCESSED);
+        }
 
         if (newStatus == ReportStatus.RESOLVED) {
-            applyPenalty(report);
+            PenaltyType penaltyType = userReportPenaltyService.applyPenalty(report);
+            report.applyPenalty(penaltyType);
             deleteReportedContent(userId, report);
         }
+
+        report.updateStatus(newStatus);
     }
 
     /**
@@ -170,94 +197,6 @@ public class ReportService {
     }
 
     /**
-     * 만료된 정지 자동 해제
-     * - 임시 정지(7일) 기간이 끝났으면 사용자 상태 복구
-     * - 영구 차단은 유지
-     */
-    @Transactional
-    public void clearExpiredSuspension(Long userId) {
-        Users user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-
-        // 영구 차단이면 유지 (해제 불가)
-        if (user.isPermanentlyBanned()) {
-            return;
-        }
-
-        if (user.getSuspensionRecord() == null || user.getSuspensionRecord().getSuspensionEndDate() == null) {
-            return;
-        }
-
-        LocalDateTime suspensionEndDate = user.getSuspensionRecord().getSuspensionEndDate();
-
-        // 정지 만료일이 미래면 정지 유지
-        if (LocalDateTime.now().isBefore(suspensionEndDate)) {
-            return;
-        }
-
-        // 임시 정지 기간이 만료됨 → 상태 복구
-        user.clearSuspension();
-        user.changeStatus(UserStatus.ACTIVE);
-        userRepository.save(user);
-    }
-
-    /**
-     * 신고 기반 패널티 적용 로직
-     * - 1회 접수: 경고 알림
-     * - 2회 접수: 7일 정지
-     * - 3회 접수: 영구 차단
-     * - 즉시 영구 제재: 성희롱, 포교, 명백한 문서 위조 (1회 적발)
-     */
-    @Transactional
-    protected void applyPenalty(Report report) {
-        Users reportedUser = userRepository.findById(report.getReportedUserId())
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-
-        // 영구 차단 대상 확인 (즉시 제재)
-        if (report.getReportCategory().isImmediateBan()) {
-            reportedUser.applyPermanentBan("즉시 제재 대상: " + report.getReportCategory().getDisplayName());
-            reportedUser.changeStatus(UserStatus.SUSPENDED);
-            report.applyPenalty(PenaltyType.PERMANENT_BAN);
-            userRepository.save(reportedUser);
-            return;
-        }
-
-        // 신고 누적 횟수 증가 및 패널티 결정
-        reportedUser.incrementReportCount();
-        int reportCount = reportedUser.getReportCount();
-
-        PenaltyType penaltyType = determinePenalty(reportCount, reportedUser);
-
-        report.applyPenalty(penaltyType);
-        userRepository.save(reportedUser);
-    }
-
-    /**
-     * 신고 누적 횟수에 따른 패널티 결정 및 적용
-     */
-    private PenaltyType determinePenalty(int reportCount, Users reportedUser) {
-        if (reportCount == 1) {
-            // 1회: 경고 알림만 발송
-            return PenaltyType.WARNING;
-            // TODO: 경고 알림 발송 로직
-        } else if (reportCount == 2) {
-            // 2회: 7일 정지
-            LocalDateTime suspensionEndDate = LocalDateTime.now().plusDays(7);
-            reportedUser.applySuspension(suspensionEndDate);
-            reportedUser.changeStatus(UserStatus.SUSPENDED);
-            // TODO: 7일 정지 알림 발송 로직
-            return PenaltyType.SUSPENDED_7_DAYS;
-        } else if (reportCount >= 3) {
-            // 3회 이상: 영구 차단
-            reportedUser.applyPermanentBan("신고 누적 3회로 인한 영구 차단");
-            reportedUser.changeStatus(UserStatus.SUSPENDED);
-            // TODO: 영구 차단 알림 발송 로직
-            return PenaltyType.PERMANENT_BAN;
-        }
-        return PenaltyType.WARNING;
-    }
-
-    /**
      * 신고 상세 조회 (관리자용)
      */
     public ReportResponse getReportDetail(Long userId, Long reportId) {
@@ -272,8 +211,9 @@ public class ReportService {
     /**
      * 특정 유저의 신고 누적 수 조회
      */
-    public long getResolvedReportCount(Long userId) {
-        return reportRepository.countByReportedUserIdAndStatus(userId, ReportStatus.RESOLVED);
+    public long getResolvedReportCount(Long adminId, Long userId) {
+        validateAdmin(adminId);
+        return userReportPenaltyService.countPenalties(userId);
     }
 
     /**
@@ -290,5 +230,18 @@ public class ReportService {
     private ReportResponse toResponseWithEvidenceUrl(Report report) {
         String evidenceImageUrl = issueEvidenceImageUrl(report.getEvidenceImageUrl());
         return ReportResponse.from(report, evidenceImageUrl);
+    }
+
+    private void validateTarget(ReportCreateRequest dto) {
+        if (dto.postType() == TargetType.USER) {
+            if (dto.reportedPostId() != null) {
+                throw new CustomException(ReportErrorCode.REPORT_INVALID_TARGET);
+            }
+            return;
+        }
+
+        if (dto.reportedPostId() == null) {
+            throw new CustomException(ReportErrorCode.REPORT_INVALID_TARGET);
+        }
     }
 }

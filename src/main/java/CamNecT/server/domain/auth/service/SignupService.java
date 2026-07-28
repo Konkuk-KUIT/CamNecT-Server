@@ -47,8 +47,6 @@ public class SignupService {
                 .passwordHash(passwordEncoder.encode(req.password()))
                 .status(UserStatus.ADMIN_PENDING)
                 .build();
-        user.ensureSuspensionRecord();
-
         Users savedUser;
         try {
             savedUser = userRepository.saveAndFlush(user);

@@ -121,7 +121,10 @@ spring:
 
   flyway:
     enabled: true
-    baselineOnMigrate: true
+    baseline-on-migrate: true
+    baseline-version: "0"
+    baseline-description: pre-flyway-schema
+    validate-on-migrate: true
 
   jpa:
     hibernate:
