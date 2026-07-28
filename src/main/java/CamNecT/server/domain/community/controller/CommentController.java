@@ -2,6 +2,7 @@ package CamNecT.server.domain.community.controller;
 
 import CamNecT.server.domain.community.dto.request.CreateCommentRequest;
 import CamNecT.server.domain.community.dto.request.UpdateCommentRequest;
+import CamNecT.server.domain.community.dto.response.CommentListResponse;
 import CamNecT.server.domain.community.dto.response.CreateCommentResponse;
 import CamNecT.server.domain.community.dto.response.ToggleCommentLikeResponse;
 import CamNecT.server.domain.community.service.CommentService;
@@ -20,8 +21,6 @@ import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @Tag(name = "Community Comment", description = "커뮤니티 게시글 및 댓글 관리 관련 API")
 @RestController
@@ -53,7 +52,7 @@ public class CommentController {
     // 댓글 목록 조회 (flat list: parentCommentId로 프론트에서 묶기)
     @Operation(
             summary = "댓글 목록 조회",
-            description = "게시글의 전체 댓글을 평면 리스트(Flat List) 형태로 조회합니다. 대댓글은 parentCommentId를 기준으로 프론트엔드에서 그룹화 처리가 필요합니다."
+            description = "루트 댓글 스레드를 cursorId 기준으로 조회합니다. 응답 items는 루트 댓글과 해당 대댓글을 포함한 평면 리스트이며 parentCommentId로 그룹화합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 게시글 ID 또는 size 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -63,11 +62,12 @@ public class CommentController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "50000 내부 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @GetMapping("/posts/{postId}/comments")
-    public ApiResponse<List<CommentService.CommentRow>> list(
+    public ApiResponse<CommentListResponse> list(
             @PathVariable @Positive Long postId,
+            @RequestParam(required = false) @Positive Long cursorId,
             @RequestParam(defaultValue = "20") @Min(1) @Max(50) int size
     ) {
-        return ApiResponse.success(commentService.list(postId, size));
+        return ApiResponse.success(commentService.list(postId, cursorId, size));
     }
 
     @Operation(summary = "댓글 수정", description = "작성한 댓글의 내용을 수정합니다.")

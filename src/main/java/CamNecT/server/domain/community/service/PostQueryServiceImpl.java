@@ -1,15 +1,12 @@
 package CamNecT.server.domain.community.service;
 
 import CamNecT.server.domain.community.dto.response.PostListResponse;
-import CamNecT.server.domain.community.model.Posts.PostStats;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.BoardCode;
 import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.community.repository.Posts.*;
-import CamNecT.server.domain.community.repository.Posts.PostStatsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.global.common.exception.CustomException;
-import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -24,7 +21,6 @@ import java.util.*;
 @Transactional(readOnly = true)
 public class PostQueryServiceImpl implements PostQueryService {
     private final PostsRepository postsRepository;
-    private final PostStatsRepository postStatsRepository;
 
     private final PostSummaryAssembler postSummaryAssembler;
 
@@ -35,36 +31,20 @@ public class PostQueryServiceImpl implements PostQueryService {
 
         BoardCode code = toBoardCode(tab);
         String kw = normalizeKeyword(keyword);
-
-        Long cv = cursorValue;
-        if (cv == null && cursorId != null && sort != Sort.LATEST) {
-            if (!postsRepository.existsById(cursorId)) {
-                throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
-            }
-
-            PostStats ps = postStatsRepository.findByPost_Id(cursorId)
-                    .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_STATS_NOT_FOUND));
-
-            cv = switch (sort) {
-                case RECOMMENDED -> ps.getHotScore();
-                case LIKE -> ps.getLikeCount();
-                case BOOKMARK -> ps.getBookmarkCount();
-                default -> throw new CustomException(ErrorCode.INTERNAL_ERROR);
-            };
-        }
+        validateCursor(sort, cursorId, cursorValue);
 
         Slice<Posts> slice = switch (sort) {
             case LATEST -> postsRepository.findFeedLatestWithFilter(
                     PostStatus.PUBLISHED, code, tagId, kw, cursorId, PageRequest.of(0, limit)
             );
             case RECOMMENDED -> postsRepository.findFeedRecommended(
-                    PostStatus.PUBLISHED, code, tagId, kw, cv, cursorId, PageRequest.of(0, limit)
+                    PostStatus.PUBLISHED, code, tagId, kw, cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case LIKE -> postsRepository.findFeedLikeDesc(
-                    PostStatus.PUBLISHED, code, tagId, kw, cv, cursorId, PageRequest.of(0, limit)
+                    PostStatus.PUBLISHED, code, tagId, kw, cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case BOOKMARK -> postsRepository.findFeedBookmarkDesc(
-                    PostStatus.PUBLISHED, code, tagId, kw, cv, cursorId, PageRequest.of(0, limit)
+                    PostStatus.PUBLISHED, code, tagId, kw, cursorValue, cursorId, PageRequest.of(0, limit)
             );
         };
 
@@ -74,6 +54,7 @@ public class PostQueryServiceImpl implements PostQueryService {
     @Override
     public PostListResponse getPostsByTag(Long userId, Long tagId, Long cursorValue, Long cursorId, int size) {
         int limit = Math.clamp(size, 1, 50);
+        validateCursor(Sort.RECOMMENDED, cursorId, cursorValue);
 
         Slice<Posts> slice = postsRepository.findFeedRecommended(
                 PostStatus.PUBLISHED,
@@ -125,6 +106,26 @@ public class PostQueryServiceImpl implements PostQueryService {
         return t.replace("!", "!!")
                 .replace("%", "!%")
                 .replace("_", "!_");
+    }
+
+    private static void validateCursor(Sort sort, Long cursorId, Long cursorValue) {
+        if (cursorId != null && cursorId <= 0) {
+            throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
+        }
+        if (cursorValue != null && cursorValue < 0) {
+            throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
+        }
+
+        if (sort == Sort.LATEST) {
+            if (cursorValue != null) {
+                throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
+            }
+            return;
+        }
+
+        if ((cursorId == null) != (cursorValue == null)) {
+            throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
+        }
     }
 
     private static BoardCode toBoardCode(Tab tab) {

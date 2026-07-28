@@ -41,7 +41,8 @@ public enum CommunityErrorCode implements BaseErrorCode {
     INACTIVE_TAG(HttpStatus.CONFLICT, 43926, "비활성화된 태그입니다."),
     CANNOT_LIKE_OWN_POST(HttpStatus.CONFLICT, 43927, "본인의 글에 좋아요를 누를 수 없습니다."),
     CANNOT_MODIFY_ACCEPTED_COMMENT(HttpStatus.CONFLICT, 43928, "채택된 댓글은 수정하거나 삭제할 수 없습니다."),
-    CANNOT_ACCEPT_OWN_COMMENT(HttpStatus.CONFLICT, 43929, "질문 작성자는 본인의 댓글을 채택할 수 없습니다.");
+    CANNOT_ACCEPT_OWN_COMMENT(HttpStatus.CONFLICT, 43929, "질문 작성자는 본인의 댓글을 채택할 수 없습니다."),
+    CANNOT_CHANGE_POST_ANONYMITY(HttpStatus.CONFLICT, 43930, "게시글 작성 후에는 익명 여부를 변경할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final int code;

@@ -77,10 +77,9 @@ public class Posts {
                 .build();
     }
 
-    public void update(String title, String content, Boolean isAnonymous) {
+    public void update(String title, String content) {
         if (title != null) this.title = title;
         if (content != null) this.content = content;
-        if (isAnonymous != null) this.isAnonymous = isAnonymous;
     }
 
     //public void hide() { this.status = PostStatus.HIDDEN; }

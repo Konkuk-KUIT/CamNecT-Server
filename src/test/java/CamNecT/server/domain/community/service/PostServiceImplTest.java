@@ -77,6 +77,15 @@ class PostServiceImplTest {
     }
 
     @Test
+    void postAnonymityCannotBeChangedAfterCreation() {
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.update(1L, 10L, new UpdatePostRequest(null, null, false, null, null)));
+
+        assertThat(exception.getErrorCode()).isEqualTo(CommunityErrorCode.CANNOT_CHANGE_POST_ANONYMITY);
+        verifyNoInteractions(postsRepository);
+    }
+
+    @Test
     void anonymousPostDoesNotPublishFollowerNotification() {
         Users author = Users.builder().userId(1L).name("작성자").build();
         Boards board = Boards.of(BoardCode.INFO, "정보");

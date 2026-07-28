@@ -3,6 +3,8 @@ package CamNecT.server.domain.community.service;
 import CamNecT.server.domain.community.dto.AuthorDto;
 import CamNecT.server.domain.community.dto.request.CreateCommentRequest;
 import CamNecT.server.domain.community.dto.request.UpdateCommentRequest;
+import CamNecT.server.domain.community.dto.response.CommentItemResponse;
+import CamNecT.server.domain.community.dto.response.CommentListResponse;
 import CamNecT.server.domain.community.dto.response.CreateCommentResponse;
 import CamNecT.server.domain.community.dto.response.ToggleCommentLikeResponse;
 import CamNecT.server.domain.community.model.Comments.CommentLikes;
@@ -201,21 +203,24 @@ public class CommentServiceImpl implements CommentService {
 
     @Transactional(readOnly = true)
     @Override
-    public List<CommentRow> list(Long postId, int size) {
+    public CommentListResponse list(Long postId, Long cursorId, int size) {
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
         requirePublished(post);
 
+        if (cursorId != null && cursorId <= 0) {
+            throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
+        }
+
         int limit = Math.clamp(size, 1, 50);
-        var pageable = PageRequest.of(0, limit);
-
-        List<Comments> roots = new ArrayList<>();
-        roots.addAll(commentsRepository.findByPost_IdAndParentIsNullAndStatusOrderByCreatedAtDesc(postId, CommentStatus.PUBLISHED, pageable));
-        roots.addAll(commentsRepository.findByPost_IdAndParentIsNullAndStatusOrderByCreatedAtDesc(postId, CommentStatus.DELETED, pageable));
-
-        // created_at desc로 정렬 후 limit
-        roots.sort(Comparator.comparing(Comments::getCreatedAt).reversed());
-        if (roots.size() > limit) roots = roots.subList(0, limit);
+        var pageable = PageRequest.of(0, limit + 1);
+        List<CommentStatus> visibleStatuses = List.of(CommentStatus.PUBLISHED, CommentStatus.DELETED);
+        List<Comments> fetchedRoots = commentsRepository.findRootPage(postId, visibleStatuses, cursorId, pageable);
+        boolean hasNext = fetchedRoots.size() > limit;
+        List<Comments> roots = hasNext
+                ? new ArrayList<>(fetchedRoots.subList(0, limit))
+                : new ArrayList<>(fetchedRoots);
+        Long nextCursorId = hasNext && !roots.isEmpty() ? roots.getLast().getId() : null;
 
         List<Long> rootIds = roots.stream().map(Comments::getId).toList();
 
@@ -235,7 +240,7 @@ public class CommentServiceImpl implements CommentService {
         Map<Long, Long> likeMap = buildLikeCountMap(roots, children);
 
         // flat list 구성: 루트 -> 자식 순서로 내려줌
-        List<CommentRow> out = new ArrayList<>();
+        List<CommentItemResponse> out = new ArrayList<>();
 
         // parentId -> children list
         Map<Long, List<Comments>> childMap = new LinkedHashMap<>();
@@ -252,17 +257,15 @@ public class CommentServiceImpl implements CommentService {
             }
         }
 
-        return out;
+        return new CommentListResponse(out, nextCursorId, hasNext);
     }
 
     private List<Comments> mergeChildren(Long postId, List<Long> rootIds) {
-        List<Comments> children = new ArrayList<>();
-        children.addAll(commentsRepository.findByPost_IdAndParent_IdInAndStatusOrderByParent_IdAscCreatedAtAsc(
-                postId, rootIds, CommentStatus.PUBLISHED
-        ));
-        children.addAll(commentsRepository.findByPost_IdAndParent_IdInAndStatusOrderByParent_IdAscCreatedAtAsc(
-                postId, rootIds, CommentStatus.DELETED
-        ));
+        List<Comments> children = new ArrayList<>(
+                commentsRepository.findByPost_IdAndParent_IdInAndStatusInOrderByParent_IdAscCreatedAtAsc(
+                        postId, rootIds, List.of(CommentStatus.PUBLISHED, CommentStatus.DELETED)
+                )
+        );
         // parent_id asc, created_at asc 유지되도록 한 번 더 안정 정렬
         children.sort(Comparator
                 .comparing((Comments c) -> c.getParent().getId())
@@ -284,14 +287,14 @@ public class CommentServiceImpl implements CommentService {
         return map;
     }
 
-    private CommentRow toRow(Comments c, long likeCount, Map<Long, AuthorDto> authorMap) {
+    private CommentItemResponse toRow(Comments c, long likeCount, Map<Long, AuthorDto> authorMap) {
         boolean deleted = c.getStatus().isDeleted();
         String content = deleted ? "삭제된 댓글입니다." : c.getContent();
         Long parentId = (c.getParent() == null) ? null : c.getParent().getId();
 
         AuthorDto author = deleted ? null : authorMap.get(c.getUserId());
 
-        return new CommentRow(
+        return new CommentItemResponse(
                 c.getId(),
                 c.getUserId(),
                 parentId,

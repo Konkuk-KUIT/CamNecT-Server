@@ -19,11 +19,28 @@ public interface CommentsRepository extends JpaRepository<Comments, Long> {
     @Query("select c from Comments c where c.id = :commentId")
     Optional<Comments> findByIdForUpdate(@Param("commentId") Long commentId);
 
-    // 루트 댓글(부모=null) 조회 (최신순/오래된순은 취향)
-    List<Comments> findByPost_IdAndParentIsNullAndStatusOrderByCreatedAtDesc(Long postId, CommentStatus status, Pageable pageable);
+    @Query("""
+        select c
+        from Comments c
+        where c.post.id = :postId
+          and c.parent is null
+          and c.status in :statuses
+          and (:cursorId is null or c.id < :cursorId)
+        order by c.id desc
+    """)
+    List<Comments> findRootPage(
+            @Param("postId") Long postId,
+            @Param("statuses") Collection<CommentStatus> statuses,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
+    );
 
     // 루트 댓글 여러 개에 대한 답글을 한 번에 조회(부모 아래 created_at 정렬)
-    List<Comments> findByPost_IdAndParent_IdInAndStatusOrderByParent_IdAscCreatedAtAsc(Long postId, Collection<Long> parentIds, CommentStatus status);
+    List<Comments> findByPost_IdAndParent_IdInAndStatusInOrderByParent_IdAscCreatedAtAsc(
+            Long postId,
+            Collection<Long> parentIds,
+            Collection<CommentStatus> statuses
+    );
 
     // 게시글 삭제 시: 댓글 하드 삭제
     @Modifying(clearAutomatically = true, flushAutomatically = true)

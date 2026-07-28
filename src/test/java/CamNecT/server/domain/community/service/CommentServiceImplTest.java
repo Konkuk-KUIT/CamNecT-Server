@@ -2,6 +2,7 @@ package CamNecT.server.domain.community.service;
 
 import CamNecT.server.domain.community.dto.request.CreateCommentRequest;
 import CamNecT.server.domain.community.dto.request.UpdateCommentRequest;
+import CamNecT.server.domain.community.dto.response.CommentListResponse;
 import CamNecT.server.domain.community.model.Boards;
 import CamNecT.server.domain.community.model.Comments.Comments;
 import CamNecT.server.domain.community.model.Posts.PostStats;
@@ -24,7 +25,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,10 +119,40 @@ class CommentServiceImplTest {
         when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(hiddenPost));
 
         CustomException exception = assertThrows(CustomException.class,
-                () -> service.list(10L, 20));
+                () -> service.list(10L, null, 20));
 
         assertThat(exception.getErrorCode()).isEqualTo(CommunityErrorCode.POST_NOT_PUBLISHED);
         verifyNoInteractions(commentsRepository);
+    }
+
+    @Test
+    void commentListReturnsNextRootCursorAndIncludesOnlyRequestedRootPage() {
+        Posts post = publishedPost();
+        Comments first = comment(post, 30L, 2L, null, CommentStatus.PUBLISHED);
+        Comments second = comment(post, 20L, 3L, null, CommentStatus.DELETED);
+        Comments extra = comment(post, 10L, 4L, null, CommentStatus.PUBLISHED);
+
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
+        when(commentsRepository.findRootPage(
+                eq(10L), eq(List.of(CommentStatus.PUBLISHED, CommentStatus.DELETED)), eq(40L), any(Pageable.class)
+        )).thenReturn(List.of(first, second, extra));
+        when(commentsRepository.findByPost_IdAndParent_IdInAndStatusInOrderByParent_IdAscCreatedAtAsc(
+                eq(10L), eq(List.of(30L, 20L)), eq(List.of(CommentStatus.PUBLISHED, CommentStatus.DELETED))
+        )).thenReturn(List.of());
+        when(authorAssembler.buildAuthorMap(anyList())).thenReturn(Map.of());
+        when(commentLikesRepository.countByCommentIds(anyList())).thenReturn(List.of());
+
+        CommentListResponse response = service.list(10L, 40L, 2);
+
+        assertThat(response.hasNext()).isTrue();
+        assertThat(response.nextCursorId()).isEqualTo(20L);
+        assertThat(response.items()).extracting(item -> item.commentId())
+                .containsExactly(30L, 20L);
+        assertThat(response.items().get(1).userId()).isEqualTo(3L);
+        assertThat(response.items().get(1).author()).isNull();
+        verify(commentsRepository).findRootPage(
+                eq(10L), anyCollection(), eq(40L), argThat(pageable -> pageable.getPageSize() == 3)
+        );
     }
 
     private static Posts publishedPost() {

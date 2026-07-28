@@ -136,6 +136,9 @@ public class PostServiceImpl implements PostService {
         if (req == null || !req.isAnyFieldPresent()) {
             throw new CustomException(CommunityErrorCode.EMPTY_POST_UPDATE);
         }
+        if (req.anonymous() != null) {
+            throw new CustomException(CommunityErrorCode.CANNOT_CHANGE_POST_ANONYMITY);
+        }
 
         Posts post = postsRepository.findByIdForUpdate(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
@@ -146,7 +149,7 @@ public class PostServiceImpl implements PostService {
             throw new CustomException(CommunityErrorCode.POST_FORBIDDEN);
         }
 
-        post.update(req.title() == null ? null : req.title().trim(), req.content(), req.anonymous());
+        post.update(req.title() == null ? null : req.title().trim(), req.content());
 
         if (req.tagIds() != null) {
             postTagsRepository.deleteByPost_Id(postId);
