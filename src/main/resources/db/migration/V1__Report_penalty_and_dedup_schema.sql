@@ -11,6 +11,26 @@ ALTER TABLE report
     MODIFY COLUMN report_category VARCHAR(40) NOT NULL,
     MODIFY COLUMN status VARCHAR(20) NOT NULL;
 
+ALTER TABLE upload_tickets
+    MODIFY COLUMN purpose ENUM(
+        'ACTIVITY_ATTACHMENT',
+        'ACTIVITY_THUMBNAIL',
+        'COMMUNITY_POST_ATTACHMENT',
+        'PORTFOLIO_ATTACHMENT',
+        'PORTFOLIO_THUMBNAIL',
+        'PROFILE_IMAGE',
+        'REPORT_EVIDENCE',
+        'VERIFICATION_DOCUMENT'
+    ) NOT NULL,
+    MODIFY COLUMN used_ref_type ENUM(
+        'ACTIVITY',
+        'PORTFOLIO',
+        'POST',
+        'REPORT',
+        'USER_PROFILE',
+        'VERIFICATION'
+    ) NULL;
+
 -- Normalize legacy display values to enum names.
 UPDATE report
 SET report_category = CASE TRIM(report_category)
@@ -38,21 +58,40 @@ END;
 CREATE TEMPORARY TABLE report_target_backfill AS
 SELECT
     report_id,
-    CONCAT(
-        COALESCE(post_type, 'UNKNOWN'),
-        ':',
-        CASE
-            WHEN post_type = 'USER' THEN COALESCE(reported_user_id, report_id)
-            ELSE COALESCE(reported_post_id, reported_user_id, report_id)
-        END
-    ) AS base_target_key,
-    ROW_NUMBER() OVER (
-        PARTITION BY
-            reporter_id,
+    CASE
+        WHEN post_type = 'CHAT' THEN CONCAT(
+            'CHAT:',
+            COALESCE(reported_post_id, report_id),
+            ':',
+            COALESCE(reported_user_id, report_id)
+        )
+        ELSE CONCAT(
             COALESCE(post_type, 'UNKNOWN'),
+            ':',
             CASE
                 WHEN post_type = 'USER' THEN COALESCE(reported_user_id, report_id)
                 ELSE COALESCE(reported_post_id, reported_user_id, report_id)
+            END
+        )
+    END AS base_target_key,
+    ROW_NUMBER() OVER (
+        PARTITION BY
+            reporter_id,
+            CASE
+                WHEN post_type = 'CHAT' THEN CONCAT(
+                    'CHAT:',
+                    COALESCE(reported_post_id, report_id),
+                    ':',
+                    COALESCE(reported_user_id, report_id)
+                )
+                ELSE CONCAT(
+                    COALESCE(post_type, 'UNKNOWN'),
+                    ':',
+                    CASE
+                        WHEN post_type = 'USER' THEN COALESCE(reported_user_id, report_id)
+                        ELSE COALESCE(reported_post_id, reported_user_id, report_id)
+                    END
+                )
             END
         ORDER BY report_id
     ) AS reporter_duplicate_sequence
@@ -79,9 +118,9 @@ CREATE TABLE report_case (
     applied_penalty VARCHAR(30) NULL,
     moderation_reason VARCHAR(500) NULL,
     processed_by_admin_id BIGINT NULL,
-    processed_at DATETIME NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
+    processed_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
     CONSTRAINT uk_report_case_target UNIQUE (target_key),
     CONSTRAINT fk_report_case_reported_user
         FOREIGN KEY (reported_user_id) REFERENCES users(user_id),
@@ -154,10 +193,10 @@ CREATE TABLE user_report_penalty (
     case_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
     penalty_type VARCHAR(30) NOT NULL,
-    suspension_end_date DATETIME NULL,
+    suspension_end_date DATETIME(6) NULL,
     reason VARCHAR(255) NULL,
     previous_status VARCHAR(30) NOT NULL,
-    created_at DATETIME NOT NULL,
+    created_at DATETIME(6) NOT NULL,
     CONSTRAINT uk_user_report_penalty_case UNIQUE (case_id),
     CONSTRAINT fk_user_report_penalty_case
         FOREIGN KEY (case_id) REFERENCES report_case(case_id) ON DELETE CASCADE,

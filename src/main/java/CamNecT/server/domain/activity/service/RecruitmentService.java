@@ -294,7 +294,8 @@ public class RecruitmentService {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
 
-        // 3. 모집글 연관 북마크(토글) 삭제
+        // 3. 모집글 연관 지원서와 북마크 삭제
+        teamApplicationRepository.deleteByRecruitId(recruitId);
         bookmarkRepository.deleteByRecruitId(recruitId);
 
         // 4. 모집글 삭제 (ChatRequest/ChatRoom은 유지)

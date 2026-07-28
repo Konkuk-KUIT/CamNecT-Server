@@ -187,7 +187,6 @@ public class ReportService {
     /**
      * 신고된 게시글 삭제
      */
-    @Transactional
     protected void deleteReportedContent(Long adminId, ReportCase reportCase) {
         if (reportCase.getTargetType() == TargetType.USER) {
             return;

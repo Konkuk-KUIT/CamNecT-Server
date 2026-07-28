@@ -51,7 +51,7 @@ public class ReportTargetResolver {
     private ResolvedTarget fromPost(ReportCreateRequest request) {
         Posts post = postsRepository.findById(requiredTargetId(request))
                 .orElseThrow(this::invalidTarget);
-        return contentTarget(request, post.getId(), post.getUser().getUserId());
+        return contentTarget(request, post.getId(), post.getUser());
     }
 
     private ResolvedTarget fromComment(ReportCreateRequest request) {
@@ -66,7 +66,7 @@ public class ReportTargetResolver {
         if (activity.getUser() == null) {
             throw invalidTarget();
         }
-        return contentTarget(request, activity.getActivityId(), activity.getUser().getUserId());
+        return contentTarget(request, activity.getActivityId(), activity.getUser());
     }
 
     private ResolvedTarget fromRecruitment(ReportCreateRequest request) {
@@ -88,16 +88,16 @@ public class ReportTargetResolver {
         ChatRoom room = chatRoomRepository.findById(requiredTargetId(request))
                 .orElseThrow(this::invalidTarget);
 
-        Long targetUserId;
+        Users targetUser;
         if (Objects.equals(room.getRequester().getUserId(), reporterId)) {
-            targetUserId = room.getReceiver().getUserId();
+            targetUser = room.getReceiver();
         } else if (Objects.equals(room.getReceiver().getUserId(), reporterId)) {
-            targetUserId = room.getRequester().getUserId();
+            targetUser = room.getRequester();
         } else {
             throw invalidTarget();
         }
 
-        return contentTarget(request, room.getId(), targetUserId);
+        return contentTarget(request, room.getId(), targetUser);
     }
 
     private ResolvedTarget contentTarget(ReportCreateRequest request, Long targetId, Long actualAuthorId) {
@@ -106,6 +106,13 @@ public class ReportTargetResolver {
         }
         Users author = userRepository.findById(actualAuthorId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+        return resolved(request, targetId, author);
+    }
+
+    private ResolvedTarget contentTarget(ReportCreateRequest request, Long targetId, Users author) {
+        if (author == null || !Objects.equals(request.reportedUserId(), author.getUserId())) {
+            throw invalidTarget();
+        }
         return resolved(request, targetId, author);
     }
 

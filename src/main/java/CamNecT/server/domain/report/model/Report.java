@@ -107,6 +107,9 @@ public class Report {
     }
 
     public static String targetKeyFor(TargetType postType, Long reportedUserId, Long reportedPostId) {
+        if (postType == TargetType.CHAT) {
+            return postType.name() + ":" + reportedPostId + ":" + reportedUserId;
+        }
         Long targetId = postType == TargetType.USER ? reportedUserId : reportedPostId;
         return postType.name() + ":" + targetId;
     }

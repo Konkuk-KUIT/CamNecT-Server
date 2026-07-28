@@ -80,7 +80,7 @@ public class ReportController {
             @RequestBody @Valid ReportCreateRequest request) {
         Long reportId = reportService.createReport(reporterId, request);
         ReportResultResponse response = ReportResultResponse.submitted(reportId);
-        return ApiResponse.success(response);
+        return ApiResponse.created(response);
     }
 
     /**
