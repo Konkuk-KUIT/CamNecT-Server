@@ -5,6 +5,7 @@ import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.util.JwtUtil;
 import CamNecT.server.global.jwt.model.TokenType;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import CamNecT.server.domain.chat.repository.ChatRoomRepository;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class ChatStompInterceptor implements ChannelInterceptor {
 
     private final JwtUtil jwtUtil;
     private final AccountAccessGuard accountAccessGuard;
+    private final TokenSessionService tokenSessionService;
     private final ChatRoomRepository chatRoomRepository;
 
     @Override
@@ -44,10 +46,12 @@ public class ChatStompInterceptor implements ChannelInterceptor {
 
                 Long userId = jwtUtil.getUserId(token);
                 accountAccessGuard.requireActive(userId);
+                tokenSessionService.requireActiveAccess(userId, token);
                 if (accessor.getSessionAttributes() == null) {
                     throw new CustomException(AuthErrorCode.INVALID_TOKEN);
                 }
                 accessor.getSessionAttributes().put("userId", userId);
+                accessor.getSessionAttributes().put("accessTokenHash", tokenSessionService.accessTokenHash(token));
 
                 accessor.setUser(new StompPrincipal(userId.toString()));
 
@@ -80,6 +84,11 @@ public class ChatStompInterceptor implements ChannelInterceptor {
         try {
             Long userId = Long.valueOf(userIdValue.toString());
             accountAccessGuard.requireActive(userId);
+            Object tokenHash = accessor.getSessionAttributes().get("accessTokenHash");
+            if (tokenHash == null) {
+                throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+            }
+            tokenSessionService.requireActiveAccessHash(userId, tokenHash.toString());
             return userId;
         } catch (NumberFormatException e) {
             throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);

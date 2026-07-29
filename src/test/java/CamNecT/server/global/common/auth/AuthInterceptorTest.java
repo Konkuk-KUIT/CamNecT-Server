@@ -7,6 +7,7 @@ import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.model.TokenType;
 import CamNecT.server.global.jwt.util.JwtUtil;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
@@ -15,13 +16,15 @@ import org.springframework.http.HttpHeaders;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AuthInterceptorTest {
 
     private final JwtUtil jwtUtil = mock(JwtUtil.class);
     private final AccountAccessGuard accountAccessGuard = mock(AccountAccessGuard.class);
-    private final AuthInterceptor interceptor = new AuthInterceptor(jwtUtil, accountAccessGuard);
+    private final TokenSessionService tokenSessionService = mock(TokenSessionService.class);
+    private final AuthInterceptor interceptor = new AuthInterceptor(jwtUtil, accountAccessGuard, tokenSessionService);
 
     @Test
     void allowsActiveAccountWithPendingInitialSetupToUseRegularApi() throws Exception {
@@ -32,6 +35,7 @@ class AuthInterceptorTest {
         when(jwtUtil.getRole("token")).thenReturn(UserRole.USER);
 
         assertThat(interceptor.preHandle(request, response, new Object())).isTrue();
+        verify(tokenSessionService).requireActiveAccess(1L, "token");
     }
 
     @Test

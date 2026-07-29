@@ -6,6 +6,7 @@ import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.util.JwtUtil;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -28,10 +29,11 @@ class ChatStompInterceptorTest {
 
     private final JwtUtil jwtUtil = mock(JwtUtil.class);
     private final AccountAccessGuard accountAccessGuard = mock(AccountAccessGuard.class);
+    private final TokenSessionService tokenSessionService = mock(TokenSessionService.class);
     private final ChatRoomRepository chatRoomRepository = mock(ChatRoomRepository.class);
     private final MessageChannel channel = mock(MessageChannel.class);
     private final ChatStompInterceptor interceptor =
-            new ChatStompInterceptor(jwtUtil, accountAccessGuard, chatRoomRepository);
+            new ChatStompInterceptor(jwtUtil, accountAccessGuard, tokenSessionService, chatRoomRepository);
 
     @Test
     void rejectsSubscriptionToRoomWhereUserIsNotParticipant() {
@@ -90,14 +92,18 @@ class ChatStompInterceptorTest {
     private Message<byte[]> subscribe(String destination) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
         accessor.setDestination(destination);
-        accessor.setSessionAttributes(new HashMap<>(Map.of("userId", 1L)));
+        accessor.setSessionAttributes(sessionAttributes());
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 
     private Message<byte[]> send() {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
         accessor.setDestination("/app/chat/message");
-        accessor.setSessionAttributes(new HashMap<>(Map.of("userId", 1L)));
+        accessor.setSessionAttributes(sessionAttributes());
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    private HashMap<String, Object> sessionAttributes() {
+        return new HashMap<>(Map.of("userId", 1L, "accessTokenHash", "hash"));
     }
 }
