@@ -126,6 +126,8 @@ spring:
       timeout: ${REDIS_TIMEOUT:2s}
       ssl:
         enabled: ${REDIS_SSL_ENABLED:false}
+      repositories:
+        enabled: false
 
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/${DB_NAME:camnect}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=utf8}
