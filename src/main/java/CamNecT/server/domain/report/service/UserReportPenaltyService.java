@@ -10,7 +10,9 @@ import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,11 +23,13 @@ import java.time.LocalDateTime;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+@Slf4j
 public class UserReportPenaltyService {
 
     private final UserReportPenaltyRepository penaltyRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final TokenSessionService tokenSessionService;
 
     @Transactional
     public PenaltyType applyPenalty(ReportCase reportCase) {
@@ -47,6 +51,10 @@ public class UserReportPenaltyService {
             penaltyRepository.saveAndFlush(penalty);
         } catch (DataIntegrityViolationException e) {
             throw new CustomException(ReportErrorCode.REPORT_ALREADY_PROCESSED);
+        }
+
+        if (penalty.getPenaltyType() != PenaltyType.WARNING) {
+            revokeSafely(userId);
         }
 
         return penalty.getPenaltyType();
@@ -113,5 +121,13 @@ public class UserReportPenaltyService {
                 user,
                 "승인된 신고 객체 누적 3건 이상"
         );
+    }
+
+    private void revokeSafely(Long userId) {
+        try {
+            tokenSessionService.revoke(userId);
+        } catch (RuntimeException e) {
+            log.error("Penalty was saved, but token session revocation failed for userId={}", userId, e);
+        }
     }
 }

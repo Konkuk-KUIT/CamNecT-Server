@@ -15,6 +15,7 @@ import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.jwt.util.JwtUtil;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -55,12 +56,15 @@ class ChatWebSocketContractIntegrationTest {
     @Autowired ChatRepository chatRepository;
     @Autowired ChatPresenceService presenceService;
     @Autowired JwtUtil jwtUtil;
+    @Autowired TokenSessionService tokenSessionService;
     @Autowired PlatformTransactionManager transactionManager;
 
     @Test
     void websocketSendReturnsAckBroadcastsOnceAndRoutesValidationError() throws Exception {
         Fixture fixture = createFixture();
         String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER);
+        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER);
+        tokenSessionService.create(fixture.senderId(), token, refreshToken);
 
         WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
         client.setMessageConverter(new MappingJackson2MessageConverter());

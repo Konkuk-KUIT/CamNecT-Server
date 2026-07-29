@@ -4,6 +4,7 @@ import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.util.JwtUtil;
 import CamNecT.server.global.jwt.model.TokenType;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private final JwtUtil jwtUtil;
     private final AccountAccessGuard accountAccessGuard;
+    private final TokenSessionService tokenSessionService;
 
     @Override
     public boolean preHandle(
@@ -54,6 +56,9 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         Long userId = jwtUtil.getUserId(token);
         accountAccessGuard.requireAccessible(userId);
+        if (type == TokenType.ACCESS) {
+            tokenSessionService.requireActiveAccess(userId, token);
+        }
         request.setAttribute("userId", userId);
 
         request.setAttribute("role", jwtUtil.getRole(token).name());

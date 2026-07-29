@@ -5,6 +5,7 @@ import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +31,7 @@ class UserReportPenaltyServiceTest {
 
     @Mock UserReportPenaltyRepository penaltyRepository;
     @Mock UserRepository userRepository;
+    @Mock TokenSessionService tokenSessionService;
 
     private UserReportPenaltyService service;
 
@@ -38,7 +40,8 @@ class UserReportPenaltyServiceTest {
         service = new UserReportPenaltyService(
                 penaltyRepository,
                 userRepository,
-                Clock.fixed(FIXED_INSTANT, SEOUL)
+                Clock.fixed(FIXED_INSTANT, SEOUL),
+                tokenSessionService
         );
     }
 
@@ -56,6 +59,7 @@ class UserReportPenaltyServiceTest {
         UserReportPenalty saved = captor.getValue();
 
         assertThat(result).isEqualTo(PenaltyType.SUSPENDED_7_DAYS);
+        verify(tokenSessionService).revoke(2L);
         assertThat(saved.getSuspensionEndDate()).isEqualTo(
                 LocalDateTime.ofInstant(FIXED_INSTANT, SEOUL).plusDays(7)
         );

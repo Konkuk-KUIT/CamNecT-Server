@@ -6,6 +6,7 @@ import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -13,13 +14,19 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AccountAccessGuardTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final UserReportPenaltyService userReportPenaltyService = mock(UserReportPenaltyService.class);
-    private final AccountAccessGuard guard = new AccountAccessGuard(userRepository, userReportPenaltyService);
+    private final TokenSessionService tokenSessionService = mock(TokenSessionService.class);
+    private final AccountAccessGuard guard = new AccountAccessGuard(
+            userRepository,
+            userReportPenaltyService,
+            tokenSessionService
+    );
 
     @Test
     void allowsAccessibleAccount() {
@@ -38,6 +45,7 @@ class AccountAccessGuardTest {
                 () -> guard.requireAccessible(1L));
 
         assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        verify(tokenSessionService).revoke(1L);
     }
 
     @Test

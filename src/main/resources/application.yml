@@ -27,6 +27,9 @@ app:
         - image/png
         - image/webp
   auth:
+    token-store: ${AUTH_TOKEN_STORE:redis}
+    redis:
+      key-prefix: ${REDIS_AUTH_KEY_PREFIX:camnect:auth:session:}
     email-verification:
       expiration-minutes: 30
       mail:
@@ -112,6 +115,17 @@ app:
 spring:
   application:
     name: camnect-server
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      timeout: ${REDIS_TIMEOUT:2s}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
 
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/${DB_NAME:camnect}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=utf8}

@@ -17,6 +17,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 @Component
 @Getter
@@ -71,6 +72,7 @@ public class JwtUtil {
 
         return Jwts.builder()
                 .header().type("JWT").and()
+                .id(UUID.randomUUID().toString())
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_TYPE, type.name())
                 .claim(CLAIM_ROLE, role.name())

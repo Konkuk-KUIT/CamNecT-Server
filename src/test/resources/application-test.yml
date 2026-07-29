@@ -1,4 +1,7 @@
 app:
+  auth:
+    token-store: in-memory
+
   push:
     enabled: false
 
