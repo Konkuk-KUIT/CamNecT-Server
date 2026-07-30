@@ -15,10 +15,6 @@ import java.time.LocalDateTime;
 @Getter
 @Table(
         name = "report_case",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uk_report_case_target",
-                columnNames = "target_key"
-        ),
         indexes = @Index(name = "idx_report_case_filter", columnList = "target_type, status, updated_at")
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

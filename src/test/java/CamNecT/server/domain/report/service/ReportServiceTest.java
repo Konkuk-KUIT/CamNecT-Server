@@ -85,7 +85,7 @@ class ReportServiceTest {
         when(reportTargetResolver.resolve(1L, request))
                 .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
         when(userRepository.findById(2L)).thenReturn(Optional.of(author));
-        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByTargetKeyAndStatus("COMMUNITY:100", ReportStatus.RECEIVED)).thenReturn(Optional.of(reportCase));
         when(reportRepository.existsByReporterIdAndReportCase_CaseId(1L, 10L)).thenReturn(true);
 
         CustomException exception = assertThrows(
@@ -107,7 +107,7 @@ class ReportServiceTest {
         when(reportTargetResolver.resolve(3L, request))
                 .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
         when(userRepository.findById(2L)).thenReturn(Optional.of(author));
-        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByTargetKeyAndStatus("COMMUNITY:100", ReportStatus.RECEIVED)).thenReturn(Optional.of(reportCase));
         when(reportRepository.saveAndFlush(any(Report.class))).thenAnswer(invocation -> {
             Report saved = invocation.getArgument(0);
             ReflectionTestUtils.setField(saved, "reportId", 101L);
@@ -247,7 +247,7 @@ class ReportServiceTest {
         when(reportTargetResolver.resolve(1L, request))
                 .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
         when(userRepository.findById(2L)).thenReturn(Optional.of(author));
-        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByTargetKeyAndStatus("COMMUNITY:100", ReportStatus.RECEIVED)).thenReturn(Optional.of(reportCase));
         when(reportRepository.saveAndFlush(any(Report.class))).thenAnswer(invocation -> {
             Report saved = invocation.getArgument(0);
             ReflectionTestUtils.setField(saved, "reportId", 101L);

@@ -15,5 +15,5 @@ public record ReportCreateRequest(
         @NotNull ReportCategory reportCategory,
         @NotBlank String title,
         @NotBlank String context,
-        @Size(max = 5) List<@NotBlank @Size(max = 500) String> evidenceImageKeys
+        List<@NotBlank @Size(max = 500) String> evidenceImageKeys
 ) {}
