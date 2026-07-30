@@ -4,6 +4,9 @@ import CamNecT.server.domain.report.model.ReportCategory;
 import CamNecT.server.domain.report.model.TargetType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+import java.util.List;
 
 public record ReportCreateRequest(
         @NotNull Long reportedUserId,
@@ -12,5 +15,5 @@ public record ReportCreateRequest(
         @NotNull ReportCategory reportCategory,
         @NotBlank String title,
         @NotBlank String context,
-        String evidenceImageUrl // 증거 이미지 URL
+        @Size(max = 5) List<@NotBlank @Size(max = 500) String> evidenceImageKeys
 ) {}

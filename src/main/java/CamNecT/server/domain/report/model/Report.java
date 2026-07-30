@@ -60,8 +60,6 @@ public class Report {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String context;
 
-    private String evidenceImageUrl; // 증거 이미지 URL
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ReportStatus status = ReportStatus.RECEIVED; // 기본값 RECEIVED
@@ -79,7 +77,7 @@ public class Report {
 
     // 편의를 위한 빌더 패턴 또는 생성자
     public Report(ReportCase reportCase, Long reporterId, Long reportedUserId, Long reportedPostId,
-                  TargetType postType, ReportCategory reportCategory, String title, String context, String evidenceImageUrl) {
+                  TargetType postType, ReportCategory reportCategory, String title, String context) {
         this.reportCase = reportCase;
         this.reporterId = reporterId;
         this.reportedUserId = reportedUserId;
@@ -90,7 +88,6 @@ public class Report {
         this.reportCategory = reportCategory;
         this.title = title;
         this.context = context;
-        this.evidenceImageUrl = evidenceImageUrl;
         this.status = ReportStatus.RECEIVED;
     }
 
@@ -100,10 +97,6 @@ public class Report {
 
     public void applyPenalty(PenaltyType penalty) {
         this.appliedPenalty = penalty;
-    }
-
-    public void updateEvidenceImageUrl(String evidenceImageUrl) {
-        this.evidenceImageUrl = evidenceImageUrl;
     }
 
     public static String targetKeyFor(TargetType postType, Long reportedUserId, Long reportedPostId) {

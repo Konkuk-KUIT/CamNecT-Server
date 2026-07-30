@@ -7,6 +7,7 @@ This service onboards an existing, Hibernate-managed schema to Flyway while also
 - On the first deployment to an existing non-empty database, `baseline-on-migrate` records version `0` without executing V0 and then executes `V1`.
 - The existing database must match the pre-update entity model before V1 is deployed.
 - All schema changes after this rollout must be added as immutable, sequential migrations.
+- `V2__Report_multiple_evidence.sql` adds the report-to-evidence 1:N table, backfills each legacy evidence key, and removes the obsolete single-evidence column.
 - Local and test H2 profiles disable Flyway because their disposable schema is created from JPA entities; the migration SQL targets MySQL.
 
-Do not edit V0 or V1 after deployment. Add a new migration instead.
+Do not edit an already deployed migration. Add a new sequential migration instead.

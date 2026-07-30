@@ -12,9 +12,9 @@ import CamNecT.server.domain.report.service.ReportService;
 import CamNecT.server.global.common.auth.UserId;
 import CamNecT.server.global.common.response.ApiResponse;
 import CamNecT.server.global.common.response.ErrorResponse;
-import CamNecT.server.global.storage.dto.request.PresignUploadRequest;
+import CamNecT.server.global.storage.dto.request.PresignUploadBatchRequest;
 import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
-import CamNecT.server.global.storage.dto.response.PresignUploadResponse;
+import CamNecT.server.global.storage.dto.response.PresignUploadBatchResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -39,7 +39,7 @@ public class ReportController {
     /**
      * 일반 유저가 신고하는 메서드
      * POST /api/v1/reports
-     * 요청: { reportedUserId, reportedPostId, postType, reportCategory, title, context, evidenceImageUrl }
+     * 요청: { reportedUserId, reportedPostId, postType, reportCategory, title, context, evidenceImageKeys }
      * 응답: { reportId, message, penaltyType }
      */
     @Operation(
@@ -83,59 +83,15 @@ public class ReportController {
         return ApiResponse.created(response);
     }
 
-    /**
-     * 증거 이미지 업로드용 Presigned URL 발급
-     * POST /api/v1/reports/uploads/presign/evidence
-     * 
-     * 포트폴리오의 이미지 업로드 방식을 그대로 적용
-     */
     @Operation(
-            summary = "신고 증거 이미지 업로드 URL 발급",
-            description = "신고에 첨부할 증거 이미지를 업로드하기 위한 Presigned URL을 발급합니다. 이미지 확장자만 허용됩니다."
+            summary = "신고 증거 이미지 일괄 업로드 URL 발급",
+            description = "신고 한 건에 첨부할 이미지들을 최대 5개까지 한 번에 presign 합니다."
     )
-    @ApiResponses({
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "200",
-                    description = "Presigned URL 발급 성공",
-                    content = @Content(schema = @Schema(implementation = PresignUploadResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "400",
-                    description = "40000 요청값 검증 실패 / 49020 파일 크기가 0 이하",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "401",
-                    description = "40100 유효하지 않거나 만료된 JWT / 인증 헤더 누락",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "403",
-                    description = "41302 정지된 사용자",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "413",
-                    description = "49005 이미지 용량 제한 초과",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "415",
-                    description = "41500 지원하지 않는 Content-Type / 49004 허용되지 않은 이미지 파일 형식 (jpg, jpeg, png, webp만 허용)",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "500",
-                    description = "50000 Presigned URL 발급 또는 내부 오류",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
-            )
-    })
-    @PostMapping("/uploads/presign/evidence")
-    public ApiResponse<PresignUploadResponse> presignEvidence(
+    @PostMapping("/uploads/presign/evidence/batch")
+    public ApiResponse<PresignUploadBatchResponse> presignEvidenceBatch(
             @UserId Long userId,
-            @RequestBody @Valid PresignUploadRequest request) {
-        PresignUploadResponse response = reportAttachmentService.presignEvidence(userId, request);
-        return ApiResponse.success(response);
+            @RequestBody @Valid PresignUploadBatchRequest request) {
+        return ApiResponse.success(reportAttachmentService.presignEvidenceBatch(userId, request));
     }
 
     /**
@@ -221,15 +177,16 @@ public class ReportController {
     }
 
     @Operation(
-            summary = "신고 증거 파일 다운로드 URL 발급",
-            description = "관리자가 특정 신고 제출 건의 증거 파일을 확인할 수 있도록 짧게 유효한 presigned download URL을 발급합니다."
+            summary = "신고 증거 이미지별 다운로드 URL 발급",
+            description = "관리자가 신고 제출 건에 포함된 특정 증거 이미지의 presigned download URL을 발급합니다."
     )
-    @GetMapping("/admin/{caseId}/submissions/{reportId}/evidence/download-url")
+    @GetMapping("/admin/{caseId}/submissions/{reportId}/evidence/{evidenceId}/download-url")
     public ApiResponse<PresignDownloadResponse> getEvidenceDownloadUrl(
             @UserId Long userId,
             @PathVariable Long caseId,
-            @PathVariable Long reportId) {
-        return ApiResponse.success(reportService.getEvidenceDownloadUrl(userId, caseId, reportId));
+            @PathVariable Long reportId,
+            @PathVariable Long evidenceId) {
+        return ApiResponse.success(reportService.getEvidenceDownloadUrl(userId, caseId, reportId, evidenceId));
     }
 
     /**

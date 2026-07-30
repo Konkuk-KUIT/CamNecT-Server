@@ -8,6 +8,7 @@ import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
 import CamNecT.server.domain.report.dto.request.ReportProcessRequest;
 import CamNecT.server.domain.report.model.*;
 import CamNecT.server.domain.report.repository.ReportCaseRepository;
+import CamNecT.server.domain.report.repository.ReportEvidenceRepository;
 import CamNecT.server.domain.report.repository.ReportRepository;
 import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserRole;
@@ -40,6 +41,7 @@ import static org.mockito.Mockito.*;
 class ReportServiceTest {
 
     @Mock ReportRepository reportRepository;
+    @Mock ReportEvidenceRepository evidenceRepository;
     @Mock ReportCaseRepository reportCaseRepository;
     @Mock UserReportPenaltyRepository penaltyRepository;
     @Mock UserRepository userRepository;
@@ -58,6 +60,7 @@ class ReportServiceTest {
     void setUp() {
         service = new ReportService(
                 reportRepository,
+                evidenceRepository,
                 reportCaseRepository,
                 penaltyRepository,
                 userRepository,
@@ -188,7 +191,7 @@ class ReportServiceTest {
     }
 
     @Test
-    void adminCanPresignEvidenceForSubmissionInCase() {
+    void adminCanPresignSpecificEvidenceForSubmissionInCase() {
         Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
         Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
         ReportCase reportCase = reportCase(10L, author, 2L, TargetType.USER);
@@ -200,10 +203,18 @@ class ReportServiceTest {
                 TargetType.USER,
                 ReportCategory.OTHER,
                 "title",
-                "context",
-                "reports/1/evidence.png"
+                "context"
         );
         ReflectionTestUtils.setField(report, "reportId", 101L);
+        ReportEvidence evidence = ReportEvidence.create(
+                report,
+                "reports/1/evidence.png",
+                "evidence.png",
+                "image/png",
+                1024L,
+                0
+        );
+        ReflectionTestUtils.setField(evidence, "evidenceId", 1001L);
         PresignDownloadResponse expected = new PresignDownloadResponse(
                 "https://s3.example/presigned",
                 LocalDateTime.now(),
@@ -211,12 +222,82 @@ class ReportServiceTest {
         );
 
         when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
-        when(reportRepository.findByReportIdAndReportCase_CaseId(101L, 10L))
-                .thenReturn(Optional.of(report));
-        when(presignEngine.presignDownload("reports/1/evidence.png", null, null))
+        when(evidenceRepository.findByEvidenceIdAndReport_ReportIdAndReport_ReportCase_CaseId(1001L, 101L, 10L))
+                .thenReturn(Optional.of(evidence));
+        when(presignEngine.presignDownload("reports/1/evidence.png", "evidence.png", "image/png"))
                 .thenReturn(expected);
 
-        assertThat(service.getEvidenceDownloadUrl(9L, 10L, 101L)).isEqualTo(expected);
+        assertThat(service.getEvidenceDownloadUrl(9L, 10L, 101L, 1001L)).isEqualTo(expected);
+    }
+
+    @Test
+    void createReportStoresMultipleEvidence() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        ReportCreateRequest request = new ReportCreateRequest(
+                2L,
+                100L,
+                TargetType.COMMUNITY,
+                ReportCategory.OTHER,
+                "title",
+                "context",
+                List.of("temp/first.png", "temp/second.png")
+        );
+
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(reportCase));
+        when(reportRepository.saveAndFlush(any(Report.class))).thenAnswer(invocation -> {
+            Report saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "reportId", 101L);
+            return saved;
+        });
+        when(reportAttachmentService.applyOnReportCreate(eq(1L), any(Report.class), eq(request.evidenceImageKeys())))
+                .thenAnswer(invocation -> {
+                    Report report = invocation.getArgument(1);
+                    return List.of(
+                            ReportEvidence.create(report, "final/first.png", "first.png", "image/png", 10L, 0),
+                            ReportEvidence.create(report, "final/second.png", "second.png", "image/png", 20L, 1)
+                    );
+                });
+
+        assertThat(service.createReport(1L, request)).isEqualTo(101L);
+
+        verify(reportAttachmentService).applyOnReportCreate(
+                eq(1L),
+                any(Report.class),
+                eq(List.of("temp/first.png", "temp/second.png"))
+        );
+    }
+
+    @Test
+    void reportDetailContainsEveryEvidenceItemInDisplayOrder() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        Report report = report(101L, reportCase, 1L);
+        ReportEvidence first = ReportEvidence.create(
+                report, "final/first.png", "first.png", "image/png", 100L, 0);
+        ReportEvidence second = ReportEvidence.create(
+                report, "final/second.jpg", "second.jpg", "image/jpeg", 200L, 1);
+        ReflectionTestUtils.setField(first, "evidenceId", 1001L);
+        ReflectionTestUtils.setField(second, "evidenceId", 1002L);
+
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L)).thenReturn(List.of(report));
+        when(evidenceRepository.findAllByReport_ReportIdInOrderByReport_ReportIdAscSortOrderAsc(List.of(101L)))
+                .thenReturn(List.of(first, second));
+
+        var detail = service.getReportDetail(9L, 10L);
+
+        assertThat(detail.submissions()).singleElement().satisfies(submission -> {
+            assertThat(submission.hasEvidence()).isTrue();
+            assertThat(submission.evidenceCount()).isEqualTo(2);
+            assertThat(submission.evidence()).extracting("evidenceId")
+                    .containsExactly(1001L, 1002L);
+        });
     }
 
     private static ReportCreateRequest request(Long reportedUserId, Long postId, TargetType targetType) {
@@ -260,8 +341,7 @@ class ReportServiceTest {
                 reportCase.getTargetType(),
                 ReportCategory.OTHER,
                 "title",
-                "context",
-                null
+                "context"
         );
         ReflectionTestUtils.setField(report, "reportId", reportId);
         return report;
