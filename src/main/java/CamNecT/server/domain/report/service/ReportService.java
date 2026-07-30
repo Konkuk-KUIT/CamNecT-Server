@@ -8,10 +8,12 @@ import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
 import CamNecT.server.domain.report.dto.request.ReportProcessRequest;
 import CamNecT.server.domain.report.dto.response.ReportCaseDetailResponse;
 import CamNecT.server.domain.report.dto.response.ReportCaseSummaryResponse;
+import CamNecT.server.domain.report.dto.response.ReportEvidenceResponse;
 import CamNecT.server.domain.report.dto.response.ReportPenaltyResponse;
 import CamNecT.server.domain.report.dto.response.ReportSubmissionResponse;
 import CamNecT.server.domain.report.model.*;
 import CamNecT.server.domain.report.repository.ReportCaseRepository;
+import CamNecT.server.domain.report.repository.ReportEvidenceRepository;
 import CamNecT.server.domain.report.repository.ReportRepository;
 import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserRole;
@@ -32,11 +34,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @Slf4j
@@ -45,6 +49,7 @@ import java.util.List;
 public class ReportService {
 
     private final ReportRepository reportRepository;
+    private final ReportEvidenceRepository evidenceRepository;
     private final ReportCaseRepository reportCaseRepository;
     private final UserReportPenaltyRepository penaltyRepository;
     private final UserRepository userRepository;
@@ -71,6 +76,7 @@ public class ReportService {
      */
     @Transactional
     public Long createReport(Long reporterId, ReportCreateRequest dto) {
+        List<String> evidenceKeys = dto.evidenceImageKeys() == null ? List.of() : dto.evidenceImageKeys();
         ReportTargetResolver.ResolvedTarget target = reportTargetResolver.resolve(reporterId, dto);
         if (reporterId.equals(target.author().getUserId())) {
             throw new CustomException(ReportErrorCode.REPORT_SELF_NOT_ALLOWED);
@@ -96,7 +102,6 @@ public class ReportService {
             throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
         }
 
-        // 증거 이미지는 일단 presign된 키로 저장, 나중에 consume 처리
         Report report = new Report(
                 reportCase,
                 reporterId,
@@ -105,8 +110,7 @@ public class ReportService {
                 dto.postType(),
                 dto.reportCategory(),
                 dto.title(),
-                dto.context(),
-                dto.evidenceImageUrl()
+                dto.context()
         );
         Report savedReport;
         try {
@@ -118,13 +122,12 @@ public class ReportService {
         reportCase.addReport();
         
         // 증거 이미지가 있으면 최종 경로로 이동 (consume)
-        if (StringUtils.hasText(dto.evidenceImageUrl())) {
-            String finalEvidenceUrl = reportAttachmentService.applyOnReportCreate(
+        if (!evidenceKeys.isEmpty()) {
+            List<ReportEvidence> evidence = reportAttachmentService.applyOnReportCreate(
                     reporterId,
-                    savedReport.getReportId(),
-                    dto.evidenceImageUrl()
+                    savedReport,
+                    evidenceKeys
             );
-            savedReport.updateEvidenceImageUrl(finalEvidenceUrl);
         }
         
         return savedReport.getReportId();
@@ -237,10 +240,20 @@ public class ReportService {
         ReportCase reportCase = reportCaseRepository.findById(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
-        List<ReportSubmissionResponse> submissions = reportRepository
-                .findAllByReportCase_CaseIdOrderByCreatedAtAsc(caseId)
-                .stream()
-                .map(ReportSubmissionResponse::from)
+        List<Report> reports = reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(caseId);
+        Map<Long, List<ReportEvidenceResponse>> evidenceByReportId = new HashMap<>();
+        if (!reports.isEmpty()) {
+            evidenceRepository.findAllByReport_ReportIdInOrderByReport_ReportIdAscSortOrderAsc(
+                    reports.stream().map(Report::getReportId).toList()
+            ).forEach(evidence -> evidenceByReportId
+                    .computeIfAbsent(evidence.getReport().getReportId(), ignored -> new ArrayList<>())
+                    .add(ReportEvidenceResponse.from(evidence)));
+        }
+        List<ReportSubmissionResponse> submissions = reports.stream()
+                .map(report -> ReportSubmissionResponse.from(
+                        report,
+                        evidenceByReportId.getOrDefault(report.getReportId(), List.of())
+                ))
                 .toList();
 
         LocalDateTime now = LocalDateTime.now(clock);
@@ -261,16 +274,27 @@ public class ReportService {
         return userReportPenaltyService.countPenalties(userId);
     }
 
-    public PresignDownloadResponse getEvidenceDownloadUrl(Long adminId, Long caseId, Long reportId) {
+    public PresignDownloadResponse getEvidenceDownloadUrl(
+            Long adminId,
+            Long caseId,
+            Long reportId,
+            Long evidenceId
+    ) {
         validateAdmin(adminId);
 
-        Report report = reportRepository.findByReportIdAndReportCase_CaseId(reportId, caseId)
-                .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
-        if (!StringUtils.hasText(report.getEvidenceImageUrl())) {
-            throw new CustomException(ReportErrorCode.REPORT_EVIDENCE_NOT_FOUND);
-        }
+        ReportEvidence evidence = evidenceRepository
+                .findByEvidenceIdAndReport_ReportIdAndReport_ReportCase_CaseId(evidenceId, reportId, caseId)
+                .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_EVIDENCE_NOT_FOUND));
 
-        return presignEngine.presignDownload(report.getEvidenceImageUrl(), null, null);
+        return presignEvidenceDownload(evidence);
+    }
+
+    private PresignDownloadResponse presignEvidenceDownload(ReportEvidence evidence) {
+        return presignEngine.presignDownload(
+                evidence.getStorageKey(),
+                evidence.getOriginalFilename(),
+                evidence.getContentType()
+        );
     }
 
 }
