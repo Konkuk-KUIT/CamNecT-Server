@@ -15,7 +15,10 @@ import java.time.LocalDateTime;
 @Getter
 @Table(
         name = "report_case",
-        indexes = @Index(name = "idx_report_case_filter", columnList = "target_type, status, updated_at")
+        indexes = {
+                @Index(name = "idx_report_case_filter", columnList = "target_type, status, updated_at"),
+                @Index(name = "idx_report_case_target_status", columnList = "target_key, status")
+        }
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @EntityListeners(AuditingEntityListener.class)
