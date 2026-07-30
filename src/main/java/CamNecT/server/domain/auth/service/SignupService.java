@@ -23,7 +23,7 @@ public class SignupService {
     private final PasswordEncoder passwordEncoder;
     private final PasswordService passwordService;
 
-    @Transactional(noRollbackFor = CustomException.class)
+    @Transactional
     public Users signupVerifiedUser(VerifySignupEmailRequest req) {
 
         // 약관
@@ -51,7 +51,7 @@ public class SignupService {
         try {
             savedUser = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
-            throw new CustomException(AuthErrorCode.DUPLICATE_RESOURCE);
+            throw new CustomException(AuthErrorCode.DUPLICATE_RESOURCE, e);
         }
 
         UserProfile emptyProfile = UserProfile.builder()
