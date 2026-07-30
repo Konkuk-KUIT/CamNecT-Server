@@ -71,6 +71,7 @@ app:
   report:
     evidence:
       max-file-size-mb: 5
+      max-files: 5
   point:
     reward:
       comment-selection: 200
