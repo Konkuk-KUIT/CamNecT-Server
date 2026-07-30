@@ -104,10 +104,40 @@ class SignupEmailVerificationIntegrationTest {
         assertThat(tokenRepository.findById(issued.getId()).orElseThrow().getUsedAt()).isNotNull();
     }
 
+    @Test
+    void duplicatePhoneReturnsConflictWithoutUnexpectedRollback() throws Exception {
+        String firstSuffix = suffix();
+        String duplicatePhone = "010" + suffix();
+        String firstEmail = "phone-first-" + firstSuffix + "@example.com";
+        tokenRepository.saveAndFlush(EmailVerificationToken.issueForEmail(firstEmail, VALID_CODE, 30));
+
+        verifySignup(firstEmail, "phone-first-" + firstSuffix, VALID_CODE, duplicatePhone)
+                .andExpect(status().isOk());
+
+        String secondSuffix = suffix();
+        String secondEmail = "phone-second-" + secondSuffix + "@example.com";
+        tokenRepository.saveAndFlush(EmailVerificationToken.issueForEmail(secondEmail, VALID_CODE, 30));
+
+        verifySignup(secondEmail, "phone-second-" + secondSuffix, VALID_CODE, duplicatePhone)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(41903));
+
+        assertThat(userRepository.findByEmail(secondEmail)).isEmpty();
+    }
+
     private org.springframework.test.web.servlet.ResultActions verifySignup(
             String email,
             String username,
             String code
+    ) throws Exception {
+        return verifySignup(email, username, code, "010" + suffix());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions verifySignup(
+            String email,
+            String username,
+            String code,
+            String phoneNum
     ) throws Exception {
         return mockMvc.perform(post("/api/auth/signup/email/verify")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -117,7 +147,7 @@ class SignupEmailVerificationIntegrationTest {
                         "username", username,
                         "password", "password1",
                         "name", "signup user",
-                        "phoneNum", "010" + suffix(),
+                        "phoneNum", phoneNum,
                         "agreements", Map.of(
                                 "serviceTerms", true,
                                 "privacyTerms", true

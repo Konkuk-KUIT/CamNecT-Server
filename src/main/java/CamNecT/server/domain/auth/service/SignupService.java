@@ -23,7 +23,7 @@ public class SignupService {
     private final PasswordEncoder passwordEncoder;
     private final PasswordService passwordService;
 
-    @Transactional
+    @Transactional(noRollbackFor = CustomException.class)
     public Users signupVerifiedUser(VerifySignupEmailRequest req) {
 
         // 약관
