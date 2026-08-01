@@ -7,6 +7,10 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum ErrorCode implements BaseErrorCode {
+    // 503xx
+    REDIS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, 50310,
+            "일시적으로 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해주세요."),
+
     // 500xx
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, 50000, "서버 내부 오류가 발생했습니다."),
 
