@@ -6,6 +6,7 @@ import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.lettuce.core.RedisCommandTimeoutException;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.converter.MessageConversionException;
@@ -63,6 +64,18 @@ class ChatSocketErrorMapperTest {
         assertThat(response.status()).isEqualTo(500);
         assertThat(response.code()).isEqualTo(ErrorCode.INTERNAL_ERROR.getCode());
         assertThat(response.message()).doesNotContain("password");
+    }
+
+    @Test
+    void mapsRedisFailureToServiceUnavailable() {
+        ChatSocketErrorResponse response = mapper.map(
+                new RedisCommandTimeoutException("Command timed out"),
+                sendMessage(new byte[0])
+        );
+
+        assertThat(response.status()).isEqualTo(503);
+        assertThat(response.code()).isEqualTo(ErrorCode.REDIS_UNAVAILABLE.getCode());
+        assertThat(response.message()).doesNotContainIgnoringCase("redis");
     }
 
     private Message<?> sendMessage(Object payload) {
