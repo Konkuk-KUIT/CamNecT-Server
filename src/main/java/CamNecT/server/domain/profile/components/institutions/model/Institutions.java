@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -25,8 +26,20 @@ public class Institutions {
     @Column(name = "institution_name_kor", nullable = false, length = 100)
     private String institutionNameKor;
 
-    @Column(name = "institution_name_eng", nullable = false, length = 100)
+    @Column(name = "institution_name_eng", length = 100)
     private String institutionNameEng;
+
+    @Column(name = "university_type", length = 50)
+    private String universityType;
+
+    @Column(name = "primary_region", length = 50)
+    private String primaryRegion;
+
+    @Column(name = "source_as_of_date")
+    private LocalDate sourceAsOfDate;
+
+    @Column(name = "source_url", length = 512)
+    private String sourceUrl;
 
     @Column(name = "sort_order", nullable = false)
     @Builder.Default
