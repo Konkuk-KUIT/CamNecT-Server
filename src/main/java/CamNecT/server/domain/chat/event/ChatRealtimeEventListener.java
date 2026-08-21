@@ -33,4 +33,14 @@ public class ChatRealtimeEventListener {
                     event.readEvent().getRoomId(), e);
         }
     }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleRoomClosedCommitted(ChatRoomClosedCommittedEvent event) {
+        try {
+            deliveryService.deliverRoomClosed(event);
+        } catch (Exception e) {
+            log.warn("[chat-realtime] after-commit room-close delivery failed. roomId={}",
+                    event.closedEvent().roomId(), e);
+        }
+    }
 }

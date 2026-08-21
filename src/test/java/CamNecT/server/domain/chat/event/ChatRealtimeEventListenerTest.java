@@ -22,4 +22,15 @@ class ChatRealtimeEventListenerTest {
 
         assertDoesNotThrow(() -> listener.handleMessageCommitted(event));
     }
+
+    @Test
+    void roomClosedDeliveryFailureDoesNotEscapeAfterCommitListener() {
+        ChatRealtimeDeliveryService deliveryService = mock(ChatRealtimeDeliveryService.class);
+        ChatRealtimeEventListener listener = new ChatRealtimeEventListener(deliveryService);
+        ChatRoomClosedCommittedEvent event = new ChatRoomClosedCommittedEvent(99L);
+        doThrow(new IllegalStateException("broker unavailable"))
+                .when(deliveryService).deliverRoomClosed(event);
+
+        assertDoesNotThrow(() -> listener.handleRoomClosedCommitted(event));
+    }
 }

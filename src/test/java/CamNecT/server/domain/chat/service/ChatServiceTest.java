@@ -4,6 +4,7 @@ import CamNecT.server.domain.activity.repository.recruitment.TeamRecruitmentRepo
 import CamNecT.server.domain.chat.dto.message.ChatMessageSendRequestDto;
 import CamNecT.server.domain.chat.dto.message.ChatMessageAckResponseDto;
 import CamNecT.server.domain.chat.event.ChatMessageCommittedEvent;
+import CamNecT.server.domain.chat.event.ChatRoomClosedCommittedEvent;
 import CamNecT.server.domain.chat.model.Chat;
 import CamNecT.server.domain.chat.model.ChatRequest;
 import CamNecT.server.domain.chat.model.ChatRoom;
@@ -24,6 +25,8 @@ import CamNecT.server.global.tag.repository.TagRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
@@ -54,6 +57,45 @@ class ChatServiceTest {
     @Mock PointService pointService;
 
     @InjectMocks ChatService chatService;
+
+    @Test
+    void closePublishesRoomClosedEventAfterChangingRoomAndRequestState() {
+        Users user = activeUser(1L);
+        ChatRoom room = mock(ChatRoom.class);
+        ChatRequest request = mock(ChatRequest.class);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(chatRoomRepository.findByUserIdWithDetailsForUpdate(99L, 1L))
+                .thenReturn(Optional.of(room));
+        when(room.getRequest()).thenReturn(request);
+
+        chatService.closeChatRoom(99L, 1L);
+
+        InOrder inOrder = inOrder(room, request, eventPublisher);
+        inOrder.verify(room).closeRoom();
+        inOrder.verify(request).closeRequest();
+        ArgumentCaptor<ChatRoomClosedCommittedEvent> eventCaptor =
+                ArgumentCaptor.forClass(ChatRoomClosedCommittedEvent.class);
+        inOrder.verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().closedEvent().type()).isEqualTo("ROOM_CLOSED");
+        assertThat(eventCaptor.getValue().closedEvent().roomId()).isEqualTo(99L);
+    }
+
+    @Test
+    void exitKeepsSeparateSemanticsAndDoesNotPublishRoomClosedEvent() {
+        Users user = activeUser(1L);
+        ChatRoom room = mock(ChatRoom.class);
+        ChatRequest request = mock(ChatRequest.class);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(chatRoomRepository.findByUserIdWithDetailsForUpdate(99L, 1L))
+                .thenReturn(Optional.of(room));
+        when(room.getRequest()).thenReturn(request);
+
+        chatService.exitOfChatRoom(99L, 1L);
+
+        verify(room).leave(1L);
+        verify(request).closeRequest();
+        verifyNoInteractions(eventPublisher);
+    }
 
     @Test
     void oversizedMessageIsRejectedBeforeDatabaseAccess() {
