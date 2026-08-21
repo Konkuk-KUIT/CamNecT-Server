@@ -78,13 +78,6 @@ public class ChatRoomController {
         return ApiResponse.success(response);
     }
 
-    @Operation(summary = "채팅방 종료 및 나가기", description = "채팅방을 종료하는 동시에 나가기 처리를 실행합니다. 퇴장 표시, 요청 종료, 채팅방 종료를 한 번에 처리합니다.")
-    @PatchMapping("/room/{roomId}/complete-exit")
-    public ApiResponse<Void> completeExitRoom(@Parameter(description = "채팅방 ID") @PathVariable Long roomId, @UserId Long userId) {
-        chatService.completeExitChatRoom(roomId, userId);
-        return ApiResponse.success(null);
-    }
-
     @Operation(summary = "채팅방 종료", description = "해당 채팅방을 종료합니다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 채팅방 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

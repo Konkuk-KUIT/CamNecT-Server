@@ -46,6 +46,30 @@ class ChatRealtimeAfterCommitIntegrationTest {
         verifyNoInteractions(deliveryService);
     }
 
+    @Test
+    void roomClosedDeliveryStartsOnlyAfterTransactionCommit() {
+        ChatRoomClosedCommittedEvent event = new ChatRoomClosedCommittedEvent(99L);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            eventPublisher.publishEvent(event);
+            verifyNoInteractions(deliveryService);
+        });
+
+        verify(deliveryService).deliverRoomClosed(event);
+    }
+
+    @Test
+    void rollbackSuppressesRoomClosedDelivery() {
+        ChatRoomClosedCommittedEvent event = new ChatRoomClosedCommittedEvent(99L);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            eventPublisher.publishEvent(event);
+            status.setRollbackOnly();
+        });
+
+        verifyNoInteractions(deliveryService);
+    }
+
     private ChatMessageCommittedEvent messageEvent() {
         ChatMessageResponseDto message = ChatMessageResponseDto.builder()
                 .messageId(10L)
