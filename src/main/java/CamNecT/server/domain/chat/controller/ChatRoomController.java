@@ -78,6 +78,20 @@ public class ChatRoomController {
         return ApiResponse.success(response);
     }
 
+    @Operation(summary = "채팅방 종료 및 나가기", description = "채팅방 종료와 요청자 퇴장 처리를 함께 실행합니다. 성공 시 ROOM_CLOSED 이벤트가 전송됩니다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 채팅방 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "48402 채팅방이 없거나 참여자가 아님 / 48404 연결된 요청 정보 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "50000 채팅방 종료·퇴장 또는 내부 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PatchMapping("/room/{roomId}/complete-exit")
+    public ApiResponse<Void> completeExitRoom(@Parameter(description = "채팅방 ID") @PathVariable @Positive Long roomId, @UserId Long userId) {
+        chatService.completeExitChatRoom(roomId, userId);
+        return ApiResponse.success(null);
+    }
+
     @Operation(summary = "채팅방 종료", description = "해당 채팅방을 종료합니다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 채팅방 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

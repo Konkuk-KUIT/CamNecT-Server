@@ -756,7 +756,23 @@ public class ChatService {
             throw new CustomException(CoffeeChatErrorCode.REQUESTER_NOT_FOUND);
         }
         request.closeRequest();
+        eventPublisher.publishEvent(new ChatRoomClosedCommittedEvent(roomId));
 
+    }
+
+    public void completeExitChatRoom(Long roomId, Long userId) {
+        requireAuthenticatedUser(userId);
+        ChatRoom room = chatRoomRepository.findByUserIdWithDetailsForUpdate(roomId, userId)
+                .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.CHATROOM_NOT_FOUND));
+        room.leave(userId);
+
+        ChatRequest request = room.getRequest();
+        if (request == null) {
+            throw new CustomException(CoffeeChatErrorCode.REQUESTER_NOT_FOUND);
+        }
+        request.closeRequest();
+        room.closeRoom();
+        eventPublisher.publishEvent(new ChatRoomClosedCommittedEvent(roomId));
     }
 
     private void publishAcceptedNotification(ChatRequest request, Long roomId) {
