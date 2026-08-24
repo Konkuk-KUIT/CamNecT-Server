@@ -26,6 +26,7 @@ import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import CamNecT.server.global.jwt.service.TokenSessionService;
 import CamNecT.server.global.jwt.util.JwtFacade;
 import CamNecT.server.global.jwt.util.JwtUtil;
+import CamNecT.server.global.notification.service.PushDeviceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -51,6 +52,7 @@ public class LoginService {
     private final EducationRepository educationRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final TokenSessionService tokenSessionService;
+    private final PushDeviceService pushDeviceService;
 
     @Transactional
     public LoginResponse login(LoginRequest req) {
@@ -119,8 +121,14 @@ public class LoginService {
         );
     }
 
-    public void logout(Long userId) {
-        tokenSessionService.revoke(userId);
+    @Transactional
+    public void logout(Long userId, String sessionId, String deviceId) {
+        if (deviceId == null) {
+            pushDeviceService.disableAllForUser(userId);
+        } else {
+            pushDeviceService.disableForUserAndDevice(userId, deviceId);
+        }
+        tokenSessionService.revokeSession(userId, sessionId);
     }
 
     @Transactional
@@ -147,12 +155,14 @@ public class LoginService {
                 UserStatus.WITHDRAWN
         );
         userRepository.save(user);
-        tokenSessionService.revoke(userId);
+        pushDeviceService.disableAllForUser(userId);
+        tokenSessionService.revokeAll(userId);
     }
 
     private LoginResponse issueTokenLoginResponse(Users user, LoginNextStep nextStep) {
-        String access = jwtFacade.createAccessToken(user);
-        String refresh = jwtFacade.createRefreshToken(user);
+        String sessionId = UUID.randomUUID().toString();
+        String access = jwtFacade.createAccessToken(user, sessionId);
+        String refresh = jwtFacade.createRefreshToken(user, sessionId);
         tokenSessionService.create(user.getUserId(), access, refresh);
 
         return new LoginResponse(

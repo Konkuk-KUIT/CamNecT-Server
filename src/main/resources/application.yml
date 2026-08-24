@@ -186,8 +186,8 @@ server:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-token-expiration-ms: 172800000 #2day #360000        # 6min
-  refresh-token-expiration-ms: 1209600000   # 14day
+  access-token-expiration-ms: ${JWT_ACCESS_TOKEN_EXPIRATION_MS:172800000} # current default: 2 days; shorten after frontend refresh rollout
+  refresh-token-expiration-ms: ${JWT_REFRESH_TOKEN_EXPIRATION_MS:1209600000} # default: 14 days
   verification-token-expiration-ms: 259200000 #3day
 
 security:

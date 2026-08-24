@@ -37,8 +37,7 @@ class SwaggerSuccessResponseAnnotationTest {
             }
 
             for (Method method : controller.getDeclaredMethods()) {
-                if (AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class) == null
-                        || isIntentionallyDisabledRefresh(controller, method)) {
+                if (AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class) == null) {
                     continue;
                 }
 
@@ -72,7 +71,4 @@ class SwaggerSuccessResponseAnnotationTest {
                 .isEmpty();
     }
 
-    private boolean isIntentionallyDisabledRefresh(Class<?> controller, Method method) {
-        return controller.getSimpleName().equals("AuthController") && method.getName().equals("refresh");
-    }
 }

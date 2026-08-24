@@ -125,7 +125,7 @@ public class UserReportPenaltyService {
 
     private void revokeSafely(Long userId) {
         try {
-            tokenSessionService.revoke(userId);
+            tokenSessionService.revokeAll(userId);
         } catch (RuntimeException e) {
             log.error("Penalty was saved, but token session revocation failed for userId={}", userId, e);
         }

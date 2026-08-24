@@ -63,8 +63,9 @@ class ChatWebSocketContractIntegrationTest {
     @Test
     void websocketSendReturnsAckBroadcastsOnceAndRoutesValidationError() throws Exception {
         Fixture fixture = createFixture();
-        String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER);
-        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER);
+        String sessionId = UUID.randomUUID().toString();
+        String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER, sessionId);
+        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER, sessionId);
         tokenSessionService.create(fixture.senderId(), token, refreshToken);
 
         WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
@@ -153,8 +154,9 @@ class ChatWebSocketContractIntegrationTest {
     @Test
     void rapidSequentialMessagesKeepStorageAndBroadcastOrder() throws Exception {
         Fixture fixture = createFixture();
-        String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER);
-        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER);
+        String sessionId = UUID.randomUUID().toString();
+        String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER, sessionId);
+        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER, sessionId);
         tokenSessionService.create(fixture.senderId(), token, refreshToken);
 
         WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());

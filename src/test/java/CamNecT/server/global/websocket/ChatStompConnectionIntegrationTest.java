@@ -47,7 +47,7 @@ class ChatStompConnectionIntegrationTest {
 
     @Test
     void tamperedAccessTokenReturnsStructuredErrorThenCloses() throws Exception {
-        String token = jwtUtil.generateAccessToken(1L, UserRole.USER);
+        String token = jwtUtil.generateAccessToken(1L, UserRole.USER, sessionId());
 
         assertConnectRejected("Bearer " + tamperSignature(token), 401, 40100);
     }
@@ -55,14 +55,14 @@ class ChatStompConnectionIntegrationTest {
     @Test
     void expiredAccessTokenReturnsStructuredErrorThenCloses() throws Exception {
         JwtUtil expiredTokenIssuer = new JwtUtil(jwtSecret, -1, 60_000, 60_000);
-        String token = expiredTokenIssuer.generateAccessToken(1L, UserRole.USER);
+        String token = expiredTokenIssuer.generateAccessToken(1L, UserRole.USER, sessionId());
 
         assertConnectRejected("Bearer " + token, 401, 40100);
     }
 
     @Test
     void missingBearerPrefixReturnsStructuredErrorThenCloses() throws Exception {
-        String token = jwtUtil.generateAccessToken(1L, UserRole.USER);
+        String token = jwtUtil.generateAccessToken(1L, UserRole.USER, sessionId());
 
         assertConnectRejected(token, 401, 41109);
     }
@@ -75,10 +75,11 @@ class ChatStompConnectionIntegrationTest {
     @Test
     void revokedAccessTokenReturnsStructuredErrorThenCloses() throws Exception {
         Users user = createActiveUser();
-        String accessToken = jwtUtil.generateAccessToken(user.getUserId(), UserRole.USER);
-        String refreshToken = jwtUtil.generateRefreshToken(user.getUserId(), UserRole.USER);
+        String sessionId = sessionId();
+        String accessToken = jwtUtil.generateAccessToken(user.getUserId(), UserRole.USER, sessionId);
+        String refreshToken = jwtUtil.generateRefreshToken(user.getUserId(), UserRole.USER, sessionId);
         tokenSessionService.create(user.getUserId(), accessToken, refreshToken);
-        tokenSessionService.revoke(user.getUserId());
+        tokenSessionService.revokeSession(user.getUserId(), sessionId);
 
         assertConnectRejected("Bearer " + accessToken, 401, 41103);
     }
@@ -86,8 +87,9 @@ class ChatStompConnectionIntegrationTest {
     @Test
     void validAccessTokenConnectsAndNegotiatesTenSecondHeartbeat() throws Exception {
         Users user = createActiveUser();
-        String accessToken = jwtUtil.generateAccessToken(user.getUserId(), UserRole.USER);
-        String refreshToken = jwtUtil.generateRefreshToken(user.getUserId(), UserRole.USER);
+        String sessionId = sessionId();
+        String accessToken = jwtUtil.generateAccessToken(user.getUserId(), UserRole.USER, sessionId);
+        String refreshToken = jwtUtil.generateRefreshToken(user.getUserId(), UserRole.USER, sessionId);
         tokenSessionService.create(user.getUserId(), accessToken, refreshToken);
 
         Probe probe = open("Bearer " + accessToken, null);
@@ -105,8 +107,9 @@ class ChatStompConnectionIntegrationTest {
     @Test
     void unauthorizedRoomSubscriptionReturnsStructuredErrorThenCloses() throws Exception {
         Users user = createActiveUser();
-        String accessToken = jwtUtil.generateAccessToken(user.getUserId(), UserRole.USER);
-        String refreshToken = jwtUtil.generateRefreshToken(user.getUserId(), UserRole.USER);
+        String sessionId = sessionId();
+        String accessToken = jwtUtil.generateAccessToken(user.getUserId(), UserRole.USER, sessionId);
+        String refreshToken = jwtUtil.generateRefreshToken(user.getUserId(), UserRole.USER, sessionId);
         tokenSessionService.create(user.getUserId(), accessToken, refreshToken);
 
         Probe probe = open("Bearer " + accessToken, subscribeFrame(9_999_999L));
@@ -219,6 +222,10 @@ class ChatStompConnectionIntegrationTest {
                 .name("stomp-user")
                 .status(UserStatus.ACTIVE)
                 .build());
+    }
+
+    private String sessionId() {
+        return UUID.randomUUID().toString();
     }
 
     private String tamperSignature(String token) {

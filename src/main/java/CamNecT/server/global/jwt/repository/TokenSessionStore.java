@@ -6,16 +6,18 @@ public interface TokenSessionStore {
 
     void save(
             Long userId,
+            String sessionId,
             String accessTokenHash,
             Instant accessExpiresAt,
             String refreshTokenHash,
             Instant refreshExpiresAt
     );
 
-    boolean containsAccessTokenHash(Long userId, String accessTokenHash);
+    boolean containsAccessTokenHash(Long userId, String sessionId, String accessTokenHash);
 
     RefreshRotationResult rotate(
             Long userId,
+            String sessionId,
             String currentRefreshTokenHash,
             String newAccessTokenHash,
             Instant newAccessExpiresAt,
@@ -23,7 +25,9 @@ public interface TokenSessionStore {
             Instant newRefreshExpiresAt
     );
 
-    void delete(Long userId);
+    void deleteSession(Long userId, String sessionId);
+
+    void deleteAll(Long userId);
 
     enum RefreshRotationResult {
         ROTATED,

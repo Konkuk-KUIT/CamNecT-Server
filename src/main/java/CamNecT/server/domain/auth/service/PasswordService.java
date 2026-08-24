@@ -32,7 +32,7 @@ public class PasswordService {
 
         validatePassword(req.newPassword());
         user.changePasswordHash(passwordEncoder.encode(req.newPassword()));
-        tokenSessionService.revoke(userId);
+        tokenSessionService.revokeAll(userId);
     }
 
     @Transactional
@@ -41,7 +41,7 @@ public class PasswordService {
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
 
         resetPassword(user, newPassword);
-        tokenSessionService.revoke(userId);
+        tokenSessionService.revokeAll(userId);
     }
 
     private void resetPassword(Users user, String newPassword) {

@@ -26,8 +26,10 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
 
     @Override
     public boolean supportsParameter(@NonNull MethodParameter parameter) {
-        return parameter.hasParameterAnnotation(UserId.class)
-                && parameter.getParameterType().equals(Long.class);
+        return (parameter.hasParameterAnnotation(UserId.class)
+                && parameter.getParameterType().equals(Long.class))
+                || (parameter.hasParameterAnnotation(SessionId.class)
+                && parameter.getParameterType().equals(String.class));
     }
 
     @Override
@@ -37,8 +39,14 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
                                   @Nullable WebDataBinderFactory binderFactory) {
 
         HttpServletRequest request = webRequest.getNativeRequest(HttpServletRequest.class);
-        if (request != null && request.getAttribute("userId") instanceof Long userId) {
-            return userId;
+        boolean sessionIdParameter = parameter.hasParameterAnnotation(SessionId.class);
+        if (request != null) {
+            if (sessionIdParameter && request.getAttribute("sessionId") instanceof String sessionId) {
+                return sessionId;
+            }
+            if (!sessionIdParameter && request.getAttribute("userId") instanceof Long userId) {
+                return userId;
+            }
         }
 
         String authHeader = webRequest.getHeader("Authorization");
@@ -55,8 +63,21 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
             throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
         }
         accountAccessGuard.requireAccessible(userId);
+        String sessionId = null;
         if (tokenType == TokenType.ACCESS) {
-            tokenSessionService.requireActiveAccess(userId, token);
+            sessionId = tokenSessionService.requireActiveAccess(userId, token);
+        }
+        if (request != null) {
+            request.setAttribute("userId", userId);
+            if (sessionId != null) {
+                request.setAttribute("sessionId", sessionId);
+            }
+        }
+        if (sessionIdParameter) {
+            if (sessionId == null) {
+                throw new CustomException(AuthErrorCode.TOKEN_TYPE_NOT_ALLOWED);
+            }
+            return sessionId;
         }
         return userId;
     }

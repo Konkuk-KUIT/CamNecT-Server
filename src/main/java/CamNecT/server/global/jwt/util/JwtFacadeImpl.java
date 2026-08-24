@@ -13,18 +13,18 @@ public class JwtFacadeImpl implements JwtFacade {
     private final JwtUtil jwtUtil;
 
     @Override
-    public String createAccessToken(Users user) {
-        if (user == null || user.getUserId() == null || user.getRole() == null) {
-            throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("user/userId/role is null"));
+    public String createAccessToken(Users user, String sessionId) {
+        if (user == null || user.getUserId() == null || user.getRole() == null || sessionId == null) {
+            throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("user/userId/role/sessionId is null"));
         }
-        return jwtUtil.generateAccessToken(user.getUserId(), user.getRole());
+        return jwtUtil.generateAccessToken(user.getUserId(), user.getRole(), sessionId);
     }
 
     @Override
-    public String createRefreshToken(Users user) {
-        if (user == null || user.getUserId() == null || user.getRole() == null) {
-            throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("user/userId/role is null"));
+    public String createRefreshToken(Users user, String sessionId) {
+        if (user == null || user.getUserId() == null || user.getRole() == null || sessionId == null) {
+            throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("user/userId/role/sessionId is null"));
         }
-        return jwtUtil.generateRefreshToken(user.getUserId(), user.getRole());
+        return jwtUtil.generateRefreshToken(user.getUserId(), user.getRole(), sessionId);
     }
 }

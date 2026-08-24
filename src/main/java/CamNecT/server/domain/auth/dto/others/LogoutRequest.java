@@ -4,9 +4,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-public record TokenRefreshRequest(
-        @Schema(description = "로그인 또는 직전 재발급 응답에서 받은 Refresh Token")
+public record LogoutRequest(
+        @Schema(description = "푸시 토큰 등록 시 사용한 현재 기기의 deviceId")
         @NotBlank
-        @Size(max = 4096)
-        String refreshToken
-) {}
+        @Size(max = 128)
+        String deviceId
+) {
+}

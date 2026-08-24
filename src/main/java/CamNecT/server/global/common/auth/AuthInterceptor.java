@@ -57,7 +57,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         Long userId = jwtUtil.getUserId(token);
         accountAccessGuard.requireAccessible(userId);
         if (type == TokenType.ACCESS) {
-            tokenSessionService.requireActiveAccess(userId, token);
+            String sessionId = tokenSessionService.requireActiveAccess(userId, token);
+            request.setAttribute("sessionId", sessionId);
         }
         request.setAttribute("userId", userId);
 

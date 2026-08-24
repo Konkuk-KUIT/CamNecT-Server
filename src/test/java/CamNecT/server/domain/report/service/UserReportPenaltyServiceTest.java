@@ -59,7 +59,7 @@ class UserReportPenaltyServiceTest {
         UserReportPenalty saved = captor.getValue();
 
         assertThat(result).isEqualTo(PenaltyType.SUSPENDED_7_DAYS);
-        verify(tokenSessionService).revoke(2L);
+        verify(tokenSessionService).revokeAll(2L);
         assertThat(saved.getSuspensionEndDate()).isEqualTo(
                 LocalDateTime.ofInstant(FIXED_INSTANT, SEOUL).plusDays(7)
         );

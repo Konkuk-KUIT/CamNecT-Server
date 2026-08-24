@@ -25,6 +25,7 @@ public class JwtUtil {
 
     private static final String CLAIM_TYPE = "type";
     private static final String CLAIM_ROLE = "role";
+    private static final String CLAIM_SESSION_ID = "sid";
 
     private final SecretKey key;
     private final long accessTokenExpirationMs;
@@ -43,12 +44,12 @@ public class JwtUtil {
         this.verificationTokenExpirationMs = verificationTokenExpirationMs;
     }
 
-    public String generateAccessToken(Long userId, UserRole role) {
-        return generateToken(userId, role, TokenType.ACCESS, accessTokenExpirationMs);
+    public String generateAccessToken(Long userId, UserRole role, String sessionId) {
+        return generateSessionToken(userId, role, TokenType.ACCESS, accessTokenExpirationMs, sessionId);
     }
 
-    public String generateRefreshToken(Long userId, UserRole role) {
-        return generateToken(userId, role, TokenType.REFRESH, refreshTokenExpirationMs);
+    public String generateRefreshToken(Long userId, UserRole role, String sessionId) {
+        return generateSessionToken(userId, role, TokenType.REFRESH, refreshTokenExpirationMs, sessionId);
     }
 
     public String generateVerificationToken(Long userId, UserRole role) {
@@ -59,7 +60,29 @@ public class JwtUtil {
         return generateToken(userId, role, TokenType.PASSWORD_RESET, verificationTokenExpirationMs);
     }
 
+    private String generateSessionToken(
+            Long userId,
+            UserRole role,
+            TokenType type,
+            long expirationMs,
+            String sessionId
+    ) {
+        requireValidSessionId(sessionId);
+        return tokenBuilder(userId, role, type, expirationMs)
+                .claim(CLAIM_SESSION_ID, sessionId)
+                .compact();
+    }
+
     private String generateToken(Long userId, UserRole role, TokenType type, long expirationMs) {
+        return tokenBuilder(userId, role, type, expirationMs).compact();
+    }
+
+    private io.jsonwebtoken.JwtBuilder tokenBuilder(
+            Long userId,
+            UserRole role,
+            TokenType type,
+            long expirationMs
+    ) {
         if (userId == null) {
             throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("userId is null"));
         }
@@ -78,8 +101,7 @@ public class JwtUtil {
                 .claim(CLAIM_ROLE, role.name())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(exp))
-                .signWith(key)
-                .compact();
+                .signWith(key);
     }
 
     public Long getUserId(String token) {
@@ -113,6 +135,19 @@ public class JwtUtil {
         }
     }
 
+    public String getSessionId(String token) {
+        Object raw = parseClaims(token).get(CLAIM_SESSION_ID);
+        if (raw == null) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, new IllegalArgumentException("토큰 sid claim이 없습니다."));
+        }
+        String sessionId = raw.toString();
+        try {
+            return UUID.fromString(sessionId).toString();
+        } catch (IllegalArgumentException e) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED, new IllegalArgumentException("토큰 sid claim이 올바르지 않습니다.", e));
+        }
+    }
+
     public Instant getExpiration(String token) {
         Date expiration = parseClaims(token).getExpiration();
         return expiration.toInstant();
@@ -120,6 +155,17 @@ public class JwtUtil {
 
     public void validateOrThrow(String token) {
         parseClaims(token);
+    }
+
+    private void requireValidSessionId(String sessionId) {
+        if (!StringUtils.hasText(sessionId)) {
+            throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("sessionId is blank"));
+        }
+        try {
+            UUID.fromString(sessionId);
+        } catch (IllegalArgumentException e) {
+            throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("sessionId is not a UUID", e));
+        }
     }
 
     private Claims parseClaims(String token) {

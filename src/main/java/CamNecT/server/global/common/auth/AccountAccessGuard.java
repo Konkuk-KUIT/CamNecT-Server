@@ -48,7 +48,7 @@ public class AccountAccessGuard {
 
     private void revokeSafely(Long userId) {
         try {
-            tokenSessionService.revoke(userId);
+            tokenSessionService.revokeAll(userId);
         } catch (RuntimeException e) {
             log.error("Failed to revoke token session for inaccessible userId={}", userId, e);
         }

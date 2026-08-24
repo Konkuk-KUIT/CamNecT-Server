@@ -8,6 +8,8 @@ import CamNecT.server.global.jwt.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -29,14 +31,14 @@ class TokenSessionServiceTest {
     }
 
     @Test
-    void acceptsOnlyTheAccessTokenStoredForTheCurrentSession() {
-        String access = jwtUtil.generateAccessToken(1L, UserRole.USER);
-        String refresh = jwtUtil.generateRefreshToken(1L, UserRole.USER);
-        tokenSessionService.create(1L, access, refresh);
+    void acceptsOnlyTheAccessTokenStoredForItsSession() {
+        String sessionId = sessionId();
+        Tokens tokens = tokens(1L, sessionId);
+        tokenSessionService.create(1L, tokens.access(), tokens.refresh());
 
-        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, access));
+        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, tokens.access()));
 
-        String anotherAccess = jwtUtil.generateAccessToken(1L, UserRole.USER);
+        String anotherAccess = jwtUtil.generateAccessToken(1L, UserRole.USER, sessionId);
         CustomException exception = assertThrows(
                 CustomException.class,
                 () -> tokenSessionService.requireActiveAccess(1L, anotherAccess)
@@ -45,45 +47,81 @@ class TokenSessionServiceTest {
     }
 
     @Test
-    void refreshRotationReplacesBothTokens() {
-        String oldAccess = jwtUtil.generateAccessToken(1L, UserRole.USER);
-        String oldRefresh = jwtUtil.generateRefreshToken(1L, UserRole.USER);
-        tokenSessionService.create(1L, oldAccess, oldRefresh);
+    void refreshRotationReplacesTokensOnlyInsideTheSameSession() {
+        String sessionA = sessionId();
+        String sessionB = sessionId();
+        Tokens oldA = tokens(1L, sessionA);
+        Tokens tokensB = tokens(1L, sessionB);
+        tokenSessionService.create(1L, oldA.access(), oldA.refresh());
+        tokenSessionService.create(1L, tokensB.access(), tokensB.refresh());
 
-        String newAccess = jwtUtil.generateAccessToken(1L, UserRole.USER);
-        String newRefresh = jwtUtil.generateRefreshToken(1L, UserRole.USER);
-        tokenSessionService.rotate(1L, oldRefresh, newAccess, newRefresh);
+        Tokens newA = tokens(1L, sessionA);
+        tokenSessionService.rotate(1L, oldA.refresh(), newA.access(), newA.refresh());
 
-        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, newAccess));
-        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, oldAccess));
+        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, newA.access()));
+        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, oldA.access()));
+        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, tokensB.access()));
     }
 
     @Test
-    void reusedRefreshTokenRevokesTheWholeSession() {
-        String access = jwtUtil.generateAccessToken(1L, UserRole.USER);
-        String refresh = jwtUtil.generateRefreshToken(1L, UserRole.USER);
-        tokenSessionService.create(1L, access, refresh);
+    void reusedRefreshTokenRevokesOnlyItsSession() {
+        String sessionA = sessionId();
+        String sessionB = sessionId();
+        Tokens tokensA = tokens(1L, sessionA);
+        Tokens tokensB = tokens(1L, sessionB);
+        tokenSessionService.create(1L, tokensA.access(), tokensA.refresh());
+        tokenSessionService.create(1L, tokensB.access(), tokensB.refresh());
 
-        String attackerRefresh = jwtUtil.generateRefreshToken(1L, UserRole.USER);
-        String newAccess = jwtUtil.generateAccessToken(1L, UserRole.USER);
-        String newRefresh = jwtUtil.generateRefreshToken(1L, UserRole.USER);
+        String unregisteredRefreshA = jwtUtil.generateRefreshToken(1L, UserRole.USER, sessionA);
+        Tokens nextA = tokens(1L, sessionA);
 
         CustomException exception = assertThrows(
                 CustomException.class,
-                () -> tokenSessionService.rotate(1L, attackerRefresh, newAccess, newRefresh)
+                () -> tokenSessionService.rotate(1L, unregisteredRefreshA, nextA.access(), nextA.refresh())
         );
         assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.REFRESH_TOKEN_REUSED);
-        assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, access));
+        assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, tokensA.access()));
+        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, tokensB.access()));
     }
 
     @Test
-    void logoutRevokesTheAccessToken() {
-        String access = jwtUtil.generateAccessToken(1L, UserRole.USER);
-        String refresh = jwtUtil.generateRefreshToken(1L, UserRole.USER);
-        tokenSessionService.create(1L, access, refresh);
+    void currentSessionLogoutKeepsOtherSessionsActive() {
+        String sessionA = sessionId();
+        String sessionB = sessionId();
+        Tokens tokensA = tokens(1L, sessionA);
+        Tokens tokensB = tokens(1L, sessionB);
+        tokenSessionService.create(1L, tokensA.access(), tokensA.refresh());
+        tokenSessionService.create(1L, tokensB.access(), tokensB.refresh());
 
-        tokenSessionService.revoke(1L);
+        tokenSessionService.revokeSession(1L, sessionA);
 
-        assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, access));
+        assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, tokensA.access()));
+        assertDoesNotThrow(() -> tokenSessionService.requireActiveAccess(1L, tokensB.access()));
     }
+
+    @Test
+    void securityEventRevokesEverySession() {
+        Tokens tokensA = tokens(1L, sessionId());
+        Tokens tokensB = tokens(1L, sessionId());
+        tokenSessionService.create(1L, tokensA.access(), tokensA.refresh());
+        tokenSessionService.create(1L, tokensB.access(), tokensB.refresh());
+
+        tokenSessionService.revokeAll(1L);
+
+        assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, tokensA.access()));
+        assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, tokensB.access()));
+    }
+
+    private Tokens tokens(Long userId, String sessionId) {
+        return new Tokens(
+                jwtUtil.generateAccessToken(userId, UserRole.USER, sessionId),
+                jwtUtil.generateRefreshToken(userId, UserRole.USER, sessionId)
+        );
+    }
+
+    private String sessionId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private record Tokens(String access, String refresh) {}
 }
