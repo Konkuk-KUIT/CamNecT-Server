@@ -300,6 +300,7 @@ public class CommentServiceImpl implements CommentService {
                 parentId,
                 content,
                 likeCount,
+                c.getCreatedAt(),
                 author
         );
     }

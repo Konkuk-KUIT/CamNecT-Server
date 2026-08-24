@@ -367,6 +367,7 @@ public class PostServiceImpl implements PostService {
                 post.getBoard().getCode(),
                 post.getTitle(),
                 content,
+                post.getCreatedAt(),
                 post.isAnonymous(),
                 stats.getViewCount(),
                 stats.getBookmarkCount(),

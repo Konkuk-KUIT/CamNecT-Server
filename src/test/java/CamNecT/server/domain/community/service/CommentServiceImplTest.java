@@ -27,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -128,9 +129,12 @@ class CommentServiceImplTest {
     @Test
     void commentListReturnsNextRootCursorAndIncludesOnlyRequestedRootPage() {
         Posts post = publishedPost();
-        Comments first = comment(post, 30L, 2L, null, CommentStatus.PUBLISHED);
-        Comments second = comment(post, 20L, 3L, null, CommentStatus.DELETED);
-        Comments extra = comment(post, 10L, 4L, null, CommentStatus.PUBLISHED);
+        LocalDateTime firstCreatedAt = LocalDateTime.of(2026, 8, 24, 10, 0);
+        LocalDateTime secondCreatedAt = LocalDateTime.of(2026, 8, 24, 9, 0);
+        Comments first = comment(post, 30L, 2L, null, CommentStatus.PUBLISHED, firstCreatedAt);
+        Comments second = comment(post, 20L, 3L, null, CommentStatus.DELETED, secondCreatedAt);
+        Comments extra = comment(post, 10L, 4L, null, CommentStatus.PUBLISHED,
+                LocalDateTime.of(2026, 8, 24, 8, 0));
 
         when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
         when(commentsRepository.findRootPage(
@@ -148,6 +152,8 @@ class CommentServiceImplTest {
         assertThat(response.nextCursorId()).isEqualTo(20L);
         assertThat(response.items()).extracting(item -> item.commentId())
                 .containsExactly(30L, 20L);
+        assertThat(response.items()).extracting(item -> item.createdAt())
+                .containsExactly(firstCreatedAt, secondCreatedAt);
         assertThat(response.items().get(1).userId()).isEqualTo(3L);
         assertThat(response.items().get(1).author()).isNull();
         verify(commentsRepository).findRootPage(
@@ -175,6 +181,11 @@ class CommentServiceImplTest {
     }
 
     private static Comments comment(Posts post, Long id, Long userId, Comments parent, CommentStatus status) {
+        return comment(post, id, userId, parent, status, null);
+    }
+
+    private static Comments comment(Posts post, Long id, Long userId, Comments parent, CommentStatus status,
+                                    LocalDateTime createdAt) {
         return Comments.builder()
                 .id(id)
                 .post(post)
@@ -182,6 +193,7 @@ class CommentServiceImplTest {
                 .parent(parent)
                 .content("댓글")
                 .status(status)
+                .createdAt(createdAt)
                 .build();
     }
 }

@@ -33,6 +33,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -146,7 +147,17 @@ class PostServiceImplTest {
 
     @Test
     void anonymousDetailOmitsAuthorAndUsesAtomicViewIncrement() {
-        Posts post = post(1L, BoardCode.INFO, true, PostStatus.PUBLISHED);
+        LocalDateTime createdAt = LocalDateTime.of(2026, 8, 24, 10, 30);
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.INFO, BoardCode.INFO.name()))
+                .user(Users.builder().userId(1L).build())
+                .title("제목")
+                .content("본문")
+                .isAnonymous(true)
+                .status(PostStatus.PUBLISHED)
+                .createdAt(createdAt)
+                .build();
         PostStats stats = PostStats.init(post);
 
         when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
@@ -159,6 +170,7 @@ class PostServiceImplTest {
         PostDetailResponse result = service.getDetail(2L, 10L);
 
         assertThat(result.content()).isEqualTo("본문");
+        assertThat(result.createdAt()).isEqualTo(createdAt);
         assertThat(result.anonymous()).isTrue();
         assertThat(result.author()).isNull();
         verifyNoInteractions(authorAssembler);
