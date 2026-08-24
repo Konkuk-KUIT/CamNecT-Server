@@ -14,6 +14,7 @@ public enum CommunityErrorCode implements BaseErrorCode {
     INVALID_SEARCH_KEYWORD(HttpStatus.BAD_REQUEST, 43041, "검색어 형식이 올바르지 않습니다."),
     INVALID_TAG_IDS(HttpStatus.BAD_REQUEST, 43060, "유효하지 않은 태그가 포함되어 있습니다."),
     EMPTY_POST_UPDATE(HttpStatus.BAD_REQUEST, 43061, "수정할 게시글 필드를 하나 이상 전달해야 합니다."),
+    ANONYMOUS_POST_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, 43062, "익명 게시글 작성을 지원하지 않습니다."),
     PARENT_COMMENT_NOT_IN_POST(HttpStatus.BAD_REQUEST, 43030, "부모 댓글이 해당 게시글에 속하지 않습니다."),
 
     // 433xx - 권한

@@ -87,20 +87,36 @@ class PostServiceImplTest {
     }
 
     @Test
-    void anonymousPostDoesNotPublishFollowerNotification() {
+    void anonymousPostCreationIsRejectedBeforeDatabaseAccess() {
+        CreatePostRequest request = new CreatePostRequest(
+                BoardCode.INFO, "제목", "본문", true, null, null
+        );
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.create(1L, request));
+
+        assertThat(exception.getErrorCode()).isEqualTo(CommunityErrorCode.ANONYMOUS_POST_NOT_SUPPORTED);
+        verifyNoInteractions(userRepository, boardsRepository, postsRepository, eventPublisher);
+    }
+
+    @Test
+    void omittedAnonymityCreatesPublicPost() {
         Users author = Users.builder().userId(1L).name("작성자").build();
         Boards board = Boards.of(BoardCode.INFO, "정보");
         CreatePostRequest request = new CreatePostRequest(
-                BoardCode.INFO, "제목", "본문", true, null, null
+                BoardCode.INFO, "제목", "본문", null, null, null
         );
 
         when(userRepository.findByUserId(1L)).thenReturn(Optional.of(author));
         when(boardsRepository.findByCode(BoardCode.INFO)).thenReturn(Optional.of(board));
         when(postsRepository.save(any(Posts.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(followRepository.findFollowerIdsByFollowingId(1L)).thenReturn(List.of());
 
         service.create(1L, request);
 
-        verifyNoInteractions(followRepository, eventPublisher);
+        verify(postsRepository).save(argThat(post -> !post.isAnonymous()));
+        verify(followRepository).findFollowerIdsByFollowingId(1L);
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test

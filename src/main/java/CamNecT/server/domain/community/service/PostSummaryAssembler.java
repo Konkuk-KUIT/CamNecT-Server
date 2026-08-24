@@ -154,7 +154,9 @@ public class PostSummaryAssembler {
                     author,
                     thumbUrl,
                     p.getAccessType(),
-                    accessStatus
+                    accessStatus,
+                    paywalled ? questionViewCost : null,
+                    paywalled ? myPoints : null
             ));
         }
 

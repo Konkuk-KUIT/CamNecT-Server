@@ -14,11 +14,13 @@ import CamNecT.server.domain.community.repository.Posts.PostTagsRepository;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -39,6 +41,11 @@ class PostSummaryAssemblerTest {
     @Mock AuthorAssembler authorAssembler;
 
     @InjectMocks PostSummaryAssembler assembler;
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(assembler, "questionViewCost", 100);
+    }
 
     @Test
     void anonymousPostKeepsContentButOmitsAuthorProfile() {
@@ -96,5 +103,38 @@ class PostSummaryAssemblerTest {
 
         assertThat(result.accessStatus()).isEqualTo(CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED);
         assertThat(result.thumbnailUrl()).isEqualTo("https://cdn/thumb.png");
+        assertThat(result.requiredPoints()).isEqualTo(100);
+        assertThat(result.myPoints()).isNull();
+    }
+
+    @Test
+    void lockedPaywalledPostIncludesRequiredPointsAndViewerBalance() {
+        Users author = Users.builder().userId(1L).name("작성자").build();
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.QUESTION, "질문"))
+                .user(author)
+                .title("질문")
+                .content("보호된 본문")
+                .status(CamNecT.server.domain.community.model.enums.PostStatus.PUBLISHED)
+                .accessType(PostAccessType.POINT_REQUIRED)
+                .build();
+
+        when(postStatsRepository.findByPost_IdIn(List.of(10L))).thenReturn(List.of());
+        when(postTagsRepository.findAllByPostIdsWithTag(List.of(10L))).thenReturn(List.of());
+        when(acceptedCommentsRepository.findAcceptedPostIds(List.of(10L))).thenReturn(List.of());
+        when(postAttachmentsRepository.findThumbCandidates(List.of(10L))).thenReturn(List.of());
+        when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
+        when(postAccessRepository.findGrantedPostIds(2L, List.of(10L))).thenReturn(List.of());
+        when(pointService.getBalance(2L)).thenReturn(50);
+
+        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+
+        assertThat(result.accessStatus()).isEqualTo(
+                CamNecT.server.domain.community.model.enums.ContentAccessStatus.INSUFFICIENT_POINTS
+        );
+        assertThat(result.preview()).isNull();
+        assertThat(result.requiredPoints()).isEqualTo(100);
+        assertThat(result.myPoints()).isEqualTo(50);
     }
 }

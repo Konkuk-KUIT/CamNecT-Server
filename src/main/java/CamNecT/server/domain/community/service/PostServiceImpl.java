@@ -87,6 +87,10 @@ public class PostServiceImpl implements PostService {
     @Transactional
     @Override
     public CreatePostResponse create(Long userId, CreatePostRequest req) {
+        if (Boolean.TRUE.equals(req.anonymous())) {
+            throw new CustomException(CommunityErrorCode.ANONYMOUS_POST_NOT_SUPPORTED);
+        }
+
         Users user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
 
@@ -95,7 +99,7 @@ public class PostServiceImpl implements PostService {
 
         PostAccessType accessType = (req.boardCode() == BoardCode.QUESTION) ? PostAccessType.POINT_REQUIRED : PostAccessType.FREE;
 
-        Posts post = Posts.create(board, user, req.title().trim(), req.content(), Boolean.TRUE.equals(req.anonymous()));
+        Posts post = Posts.create(board, user, req.title().trim(), req.content(), false);
         post.applyAccess(accessType);
 
         Posts saved = postsRepository.save(post);
