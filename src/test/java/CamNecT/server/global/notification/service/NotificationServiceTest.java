@@ -2,11 +2,13 @@ package CamNecT.server.global.notification.service;
 
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.domain.users.model.UserProfile;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.NotificationErrorCode;
 import CamNecT.server.global.notification.model.NotificationType;
+import CamNecT.server.global.notification.model.Notification;
 import CamNecT.server.global.notification.repository.NotificationRepository;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
 import org.junit.jupiter.api.Test;
@@ -89,5 +91,61 @@ class NotificationServiceTest {
                 captor.capture()
         );
         assertThat(captor.getValue().getPageSize()).isEqualTo(20);
+    }
+
+    @Test
+    void createTruncatesMessageWithoutSplittingUnicodeCodePoint() {
+        String emoji = "😀";
+        String message = emoji.repeat(256);
+
+        notificationService.create(
+                1L,
+                2L,
+                NotificationType.POST_COMMENTED,
+                message,
+                10L,
+                20L
+        );
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(captor.capture());
+        assertThat(captor.getValue().getMessage()).isEqualTo(emoji.repeat(255));
+        assertThat(captor.getValue().getMessage().codePointCount(
+                0,
+                captor.getValue().getMessage().length()
+        )).isEqualTo(255);
+    }
+
+    @Test
+    void listItemsKeepsDefaultImageWhenProfileKeyCannotBeIssued() {
+        Notification notification = Notification.of(
+                1L,
+                2L,
+                NotificationType.POST_COMMENTED,
+                "message",
+                10L,
+                20L,
+                null,
+                "/community/post/10"
+        );
+        Users actor = Users.builder().userId(2L).name("actor").build();
+        UserProfile profile = UserProfile.builder()
+                .userId(2L)
+                .profileImageKey("temp/profile.png")
+                .build();
+
+        when(notificationRepository.findByReceiverUserIdAndReadFalseAndTypeNotOrderByIdDesc(
+                eq(1L),
+                eq(NotificationType.CHAT_MESSAGE_RECEIVED),
+                any(Pageable.class)
+        )).thenReturn(new SliceImpl<>(List.of(notification)));
+        when(userRepository.findAllById(any())).thenReturn(List.of(actor));
+        when(userProfileRepository.findAllByUserIdIn(any())).thenReturn(List.of(profile));
+        when(publicUrlIssuer.issuePublicUrl("temp/profile.png")).thenReturn(null);
+
+        var result = notificationService.listItems(1L, null, 20);
+
+        assertThat(result.getContent().getFirst().actorProfileImageUrl())
+                .isEqualTo("/images/default.png");
     }
 }

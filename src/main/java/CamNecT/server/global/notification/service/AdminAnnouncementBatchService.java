@@ -34,6 +34,6 @@ public class AdminAnnouncementBatchService {
     }
 
     private String normalize(String link) {
-        return (link == null || link.isBlank()) ? null : link;
+        return (link == null || link.isBlank()) ? null : link.trim();
     }
 }
