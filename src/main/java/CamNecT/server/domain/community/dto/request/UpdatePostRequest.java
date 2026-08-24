@@ -1,6 +1,7 @@
 package CamNecT.server.domain.community.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -17,6 +18,7 @@ public record UpdatePostRequest(
         @Size(max = CommunityRequestLimits.MAX_POST_CONTENT_LENGTH)
         @Pattern(regexp = "(?s)^(?=.*\\S)[\\P{Cc}\\r\\n\\t]*$", message = "본문은 공백일 수 없고 허용되지 않은 제어문자를 포함할 수 없습니다.")
         String content,
+        @Schema(description = "작성 이후 변경할 수 없습니다. 이 필드를 전달하면 43930 오류가 반환됩니다.", accessMode = Schema.AccessMode.READ_ONLY)
         Boolean anonymous,
         @Size(max = CommunityRequestLimits.MAX_TAGS_PER_POST)
         @UniqueElements

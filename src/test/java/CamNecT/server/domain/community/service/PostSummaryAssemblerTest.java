@@ -14,11 +14,13 @@ import CamNecT.server.domain.community.repository.Posts.PostTagsRepository;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -34,11 +36,17 @@ class PostSummaryAssemblerTest {
     @Mock PostTagsRepository postTagsRepository;
     @Mock PostAccessRepository postAccessRepository;
     @Mock AcceptedCommentsRepository acceptedCommentsRepository;
+    @Mock CommunityPostAccessPolicy postAccessPolicy;
     @Mock PointService pointService;
     @Mock PublicUrlIssuer publicUrlIssuer;
     @Mock AuthorAssembler authorAssembler;
 
     @InjectMocks PostSummaryAssembler assembler;
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(assembler, "questionViewCost", 100);
+    }
 
     @Test
     void anonymousPostKeepsContentButOmitsAuthorProfile() {
@@ -87,14 +95,111 @@ class PostSummaryAssemblerTest {
 
         when(postStatsRepository.findByPost_IdIn(List.of(10L))).thenReturn(List.of());
         when(postTagsRepository.findAllByPostIdsWithTag(List.of(10L))).thenReturn(List.of());
-        when(acceptedCommentsRepository.findAcceptedPostIds(List.of(10L))).thenReturn(List.of());
+        when(acceptedCommentsRepository.findAcceptedPostIds(List.of(10L))).thenReturn(List.of(10L));
         when(postAttachmentsRepository.findThumbCandidates(List.of(10L))).thenReturn(List.of(thumbnail));
         when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
         when(publicUrlIssuer.issueImagePublicUrl("community/thumb.png")).thenReturn("https://cdn/thumb.png");
+        when(postAccessPolicy.isPaywallActive(post, true)).thenReturn(true);
 
         PostSummaryResponse result = assembler.assemble(1L, List.of(post)).items().getFirst();
 
         assertThat(result.accessStatus()).isEqualTo(CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED);
         assertThat(result.thumbnailUrl()).isEqualTo("https://cdn/thumb.png");
+        assertThat(result.requiredPoints()).isEqualTo(100);
+        assertThat(result.myPoints()).isNull();
+    }
+
+    @Test
+    void lockedPaywalledPostIncludesRequiredPointsAndViewerBalance() {
+        Users author = Users.builder().userId(1L).name("작성자").build();
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.QUESTION, "질문"))
+                .user(author)
+                .title("질문")
+                .content("보호된 본문")
+                .status(CamNecT.server.domain.community.model.enums.PostStatus.PUBLISHED)
+                .accessType(PostAccessType.POINT_REQUIRED)
+                .build();
+
+        when(postStatsRepository.findByPost_IdIn(List.of(10L))).thenReturn(List.of());
+        when(postTagsRepository.findAllByPostIdsWithTag(List.of(10L))).thenReturn(List.of());
+        when(acceptedCommentsRepository.findAcceptedPostIds(List.of(10L))).thenReturn(List.of(10L));
+        when(postAttachmentsRepository.findThumbCandidates(List.of(10L))).thenReturn(List.of());
+        when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
+        when(postAccessRepository.findGrantedPostIds(2L, List.of(10L))).thenReturn(List.of());
+        when(pointService.getBalance(2L)).thenReturn(50);
+        when(postAccessPolicy.isPaywallActive(post, true)).thenReturn(true);
+
+        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+
+        assertThat(result.accessStatus()).isEqualTo(
+                CamNecT.server.domain.community.model.enums.ContentAccessStatus.INSUFFICIENT_POINTS
+        );
+        assertThat(result.preview()).isNull();
+        assertThat(result.requiredPoints()).isEqualTo(100);
+        assertThat(result.myPoints()).isEqualTo(50);
+    }
+
+    @Test
+    void acceptedAnswerAuthorCanReadPaywalledPostWithoutPointLookup() {
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.QUESTION, "질문"))
+                .user(Users.builder().userId(1L).build())
+                .title("채택된 질문")
+                .content("보호된 본문")
+                .status(CamNecT.server.domain.community.model.enums.PostStatus.PUBLISHED)
+                .accessType(PostAccessType.POINT_REQUIRED)
+                .build();
+
+        when(postStatsRepository.findByPost_IdIn(List.of(10L))).thenReturn(List.of());
+        when(postTagsRepository.findAllByPostIdsWithTag(List.of(10L))).thenReturn(List.of());
+        when(acceptedCommentsRepository.findAcceptedPostIds(List.of(10L))).thenReturn(List.of(10L));
+        when(acceptedCommentsRepository.findAcceptedAnswerPostIds(2L, List.of(10L))).thenReturn(List.of(10L));
+        when(postAccessRepository.findGrantedPostIds(2L, List.of(10L))).thenReturn(List.of());
+        when(postAttachmentsRepository.findThumbCandidates(List.of(10L))).thenReturn(List.of());
+        when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
+        when(postAccessPolicy.isPaywallActive(post, true)).thenReturn(true);
+
+        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+
+        assertThat(result.accessStatus()).isEqualTo(
+                CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED
+        );
+        assertThat(result.preview()).isEqualTo("보호된 본문");
+        assertThat(result.requiredPoints()).isEqualTo(100);
+        assertThat(result.myPoints()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(pointService);
+    }
+
+    @Test
+    void unacceptedQuestionIsReadableWithoutPointLookup() {
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.QUESTION, "질문"))
+                .user(Users.builder().userId(1L).build())
+                .title("답변 대기 질문")
+                .content("공개 본문")
+                .status(CamNecT.server.domain.community.model.enums.PostStatus.PUBLISHED)
+                .accessType(PostAccessType.POINT_REQUIRED)
+                .build();
+
+        when(postStatsRepository.findByPost_IdIn(List.of(10L))).thenReturn(List.of());
+        when(postTagsRepository.findAllByPostIdsWithTag(List.of(10L))).thenReturn(List.of());
+        when(acceptedCommentsRepository.findAcceptedPostIds(List.of(10L))).thenReturn(List.of());
+        when(postAttachmentsRepository.findThumbCandidates(List.of(10L))).thenReturn(List.of());
+        when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
+        when(postAccessPolicy.isPaywallActive(post, false)).thenReturn(false);
+
+        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+
+        assertThat(result.accessStatus()).isEqualTo(
+                CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED
+        );
+        assertThat(result.preview()).isEqualTo("공개 본문");
+        assertThat(result.requiredPoints()).isNull();
+        assertThat(result.myPoints()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(postAccessRepository, pointService);
     }
 }

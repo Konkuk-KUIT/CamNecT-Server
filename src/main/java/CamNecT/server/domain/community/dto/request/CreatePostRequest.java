@@ -1,6 +1,7 @@
 package CamNecT.server.domain.community.dto.request;
 
 import CamNecT.server.domain.community.model.enums.BoardCode;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -21,6 +22,7 @@ public record CreatePostRequest(
         @Size(max = CommunityRequestLimits.MAX_POST_CONTENT_LENGTH)
         @Pattern(regexp = "^[\\P{Cc}\\r\\n\\t]*$", message = "본문에 허용되지 않은 제어문자가 포함되어 있습니다.")
         String content,
+        @Schema(description = "현재 익명 게시글 작성을 지원하지 않습니다. 생략하거나 false만 전달할 수 있습니다.", allowableValues = "false")
         Boolean anonymous,
         @Size(max = CommunityRequestLimits.MAX_TAGS_PER_POST)
         @UniqueElements

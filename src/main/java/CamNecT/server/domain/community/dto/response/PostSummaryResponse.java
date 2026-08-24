@@ -23,5 +23,7 @@ public record PostSummaryResponse(
         AuthorDto author,
         String thumbnailUrl,   // 일단 null 가능
         PostAccessType accessType,
-        ContentAccessStatus accessStatus
+        ContentAccessStatus accessStatus,
+        Integer requiredPoints,
+        Integer myPoints
 ) {}
