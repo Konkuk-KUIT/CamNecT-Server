@@ -87,6 +87,7 @@ public class ReportController {
             summary = "신고 증거 이미지 일괄 업로드 URL 발급",
             description = "신고 한 건에 첨부할 이미지들을 최대 5개까지 한 번에 presign 합니다."
     )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PostMapping("/uploads/presign/evidence/batch")
     public ApiResponse<PresignUploadBatchResponse> presignEvidenceBatch(
             @UserId Long userId,
@@ -180,6 +181,7 @@ public class ReportController {
             summary = "신고 증거 이미지별 다운로드 URL 발급",
             description = "관리자가 신고 제출 건에 포함된 특정 증거 이미지의 presigned download URL을 발급합니다."
     )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @GetMapping("/admin/{caseId}/submissions/{reportId}/evidence/{evidenceId}/download-url")
     public ApiResponse<PresignDownloadResponse> getEvidenceDownloadUrl(
             @UserId Long userId,

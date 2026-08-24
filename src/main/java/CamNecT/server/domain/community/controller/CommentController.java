@@ -33,6 +33,7 @@ public class CommentController {
 
     @Operation(summary = "댓글 작성", description = "특정 게시글에 새로운 댓글 또는 대댓글을 작성합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청값·게시글 ID 검증 실패 / 43030 부모 댓글이 다른 게시글에 속함", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "43320 게시글 열람 권한 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -56,6 +57,7 @@ public class CommentController {
             description = "루트 댓글 스레드를 cursorId 기준으로 조회합니다. 응답 items는 루트 댓글과 해당 대댓글을 포함한 평면 리스트이며 parentCommentId로 그룹화합니다. 채택 후 유료 전환된 질문글은 질문 작성자·채택 답변 작성자·구매자만 조회할 수 있습니다."
     )
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 게시글 ID 또는 size 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "43320 게시글 열람 권한 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -75,6 +77,7 @@ public class CommentController {
 
     @Operation(summary = "댓글 수정", description = "작성한 댓글의 내용을 수정합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청 본문 또는 댓글 ID 검증 실패", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "43310 댓글 작성자가 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -95,6 +98,7 @@ public class CommentController {
 
     @Operation(summary = "댓글 삭제", description = "특정 댓글을 삭제합니다. 답글이 있는 경우 로직에 따라 상태가 변경될 수 있습니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 댓글 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "43310 댓글 작성자가 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -113,6 +117,7 @@ public class CommentController {
 
     @Operation(summary = "댓글 좋아요 설정 (토글 방식)", description = "댓글의 좋아요 상태를 반전(Toggle)시킵니다. 호출 시마다 좋아요 등록/해제 상태와 총 좋아요 수를 반환합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 댓글 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "43320 게시글 열람 권한 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

@@ -42,6 +42,7 @@ public class PortfolioController {
 
     @Operation(summary = "포트폴리오 목록 조회", description = "본인은 전체 목록, 다른 사용자는 공개 포트폴리오 목록을 조회합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 portfolioUserId 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -58,6 +59,7 @@ public class PortfolioController {
 
     @Operation(summary = "포트폴리오 상세 조회", description = "소유자는 전체, 다른 사용자는 공개 상태의 포트폴리오만 조회할 수 있습니다. 첨부 URL 발급 실패는 해당 URL을 null로 반환합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 portfolioUserId 또는 portfolioId 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 비공개 포트폴리오 조회 권한 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -75,6 +77,7 @@ public class PortfolioController {
 
     @Operation(summary = "포트폴리오 생성", description = "Presigned URL로 업로드한 썸네일·첨부 티켓을 소비하여 포트폴리오를 생성합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청값·날짜 검증 실패 / 44020 썸네일 키 누락 / 49010 만료·사용된 티켓 / 49011 업로드 객체와 티켓 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 URL 사용자와 로그인 사용자 불일치 / 49310 티켓 소유자·목적 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -94,6 +97,7 @@ public class PortfolioController {
 
     @Operation(summary = "포트폴리오 수정", description = "소유자의 포트폴리오 정보와 썸네일·첨부 목록을 교체합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 ID·요청값·날짜 검증 실패 / 49010 만료·사용된 티켓 / 49011 업로드 객체와 티켓 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 소유자가 아님 / 49310 티켓 소유자·목적 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -114,6 +118,7 @@ public class PortfolioController {
 
     @Operation(summary = "포트폴리오 삭제", description = "소유자 또는 관리자가 포트폴리오와 파일 연결을 삭제합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 portfolioUserId 또는 portfolioId 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 소유자 또는 관리자가 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -132,6 +137,7 @@ public class PortfolioController {
 
     @Operation(summary = "공개 여부 설정", description = "소유자의 포트폴리오 공개 상태를 토글하고 최종 상태를 반환합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 portfolioUserId 또는 portfolioId 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 소유자가 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -149,6 +155,7 @@ public class PortfolioController {
 
     @Operation(summary = "즐겨찾기 설정", description = "소유자의 포트폴리오 즐겨찾기 상태를 토글하고 최종 상태를 반환합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 portfolioUserId 또는 portfolioId 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 소유자가 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -166,6 +173,7 @@ public class PortfolioController {
 
     @Operation(summary = "썸네일 업로드용 Presigned URL 발급", description = "소유자가 이미지 썸네일을 업로드할 수 있는 단건 Presigned URL을 발급합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청값 검증 실패 / 49020 파일 크기가 0 이하", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 URL 사용자와 로그인 사용자 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -185,6 +193,7 @@ public class PortfolioController {
 
     @Operation(summary = "첨부파일 업로드용 Presigned URL 발급", description = "소유자가 최대 설정 개수의 첨부파일을 업로드할 수 있는 Presigned URL을 다건 발급합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청값·파일명 검증 실패 / 49020 파일 목록이 비었거나 파일 크기가 0 이하", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 또는 토큰 사용자 없음 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 44310 URL 사용자와 로그인 사용자 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
