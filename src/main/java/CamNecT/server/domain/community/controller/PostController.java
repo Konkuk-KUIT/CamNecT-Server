@@ -130,7 +130,10 @@ public class PostController {
     }
 
 
-    @Operation(summary = "게시글 상세 조회", description = "게시글의 상세 내용과 첨부파일 목록, 좋아요/북마크 여부 등을 조회합니다.")
+    @Operation(
+            summary = "게시글 상세 조회",
+            description = "게시글의 상세 내용과 첨부파일 목록, 좋아요/북마크 여부 등을 조회합니다. 질문글은 답변 채택 전까지 공개되고 채택 후 유료 열람 정책이 적용됩니다."
+    )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 게시글 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -200,7 +203,10 @@ public class PostController {
     }
 
     //글 구매
-    @Operation(summary = "유료 글 액세스 권한 구매", description = "포인트를 지불하여 유료 게시글의 열람 권한을 획득합니다.")
+    @Operation(
+            summary = "유료 글 액세스 권한 구매",
+            description = "채택되어 유료 전환된 질문글의 열람 권한을 포인트로 구매합니다. 아직 채택되지 않은 질문글, 무료 글, 질문 작성자와 채택 답변 작성자는 포인트를 차감하지 않고 GRANTED를 반환합니다."
+    )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 게시글 ID 형식 / 44101 포인트 부족", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -243,7 +249,7 @@ public class PostController {
         return ApiResponse.success(postAttachmentsService.presignAttachmentsBatch(userId, req));
     }
 
-    @Operation(summary = "첨부파일 다운로드 URL 발급(보험)", description = "게시글의 첨부파일을 다운로드하기 위한 임시 URL을 발급받습니다.(getDetail()에서 첨부파일 발급 실패시 호출)")
+    @Operation(summary = "첨부파일 다운로드 URL 발급(보험)", description = "게시글의 첨부파일을 다운로드하기 위한 임시 URL을 발급받습니다. 채택 후 유료 전환된 질문글은 질문 작성자·채택 답변 작성자·구매자만 발급할 수 있습니다.(getDetail()에서 첨부파일 발급 실패시 호출)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 게시글 또는 첨부파일 ID 형식", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

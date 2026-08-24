@@ -16,6 +16,7 @@ import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostStatsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
@@ -47,6 +48,7 @@ class CommentServiceImplTest {
     @Mock CommentLikesRepository commentLikesRepository;
     @Mock UserRepository userRepository;
     @Mock AcceptedCommentsRepository acceptedCommentsRepository;
+    @Mock CommunityPostAccessPolicy postAccessPolicy;
     @Mock AuthorAssembler authorAssembler;
     @Mock ApplicationEventPublisher eventPublisher;
 
@@ -120,10 +122,61 @@ class CommentServiceImplTest {
         when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(hiddenPost));
 
         CustomException exception = assertThrows(CustomException.class,
-                () -> service.list(10L, null, 20));
+                () -> service.list(2L, 10L, null, 20));
 
         assertThat(exception.getErrorCode()).isEqualTo(CommunityErrorCode.POST_NOT_PUBLISHED);
         verifyNoInteractions(commentsRepository);
+    }
+
+    @Test
+    void unreadablePaidQuestionRejectsCommentListBeforeQueryingComments() {
+        Posts post = publishedPost();
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
+        doThrow(new CustomException(CommunityErrorCode.POST_FORBIDDEN))
+                .when(postAccessPolicy).requireReadable(2L, post);
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.list(2L, 10L, null, 20));
+
+        assertThat(exception.getErrorCode()).isEqualTo(CommunityErrorCode.POST_FORBIDDEN);
+        verifyNoInteractions(commentsRepository);
+    }
+
+    @Test
+    void unreadablePaidQuestionRejectsNewCommentAndLike() {
+        Posts post = publishedPost();
+        Comments comment = comment(post, 20L, 2L, null, CommentStatus.PUBLISHED);
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
+        when(commentsRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(comment));
+        doThrow(new CustomException(CommunityErrorCode.POST_FORBIDDEN))
+                .when(postAccessPolicy).requireReadable(2L, post);
+
+        assertThrows(CustomException.class,
+                () -> service.create(2L, 10L, new CreateCommentRequest("댓글", null)));
+        assertThrows(CustomException.class,
+                () -> service.toggleLike(2L, 20L));
+
+        verify(commentsRepository, never()).save(any());
+        verifyNoInteractions(postStatsRepository, commentLikesRepository);
+    }
+
+    @Test
+    void paywallDoesNotPreventAuthorOrAdminFromDeletingExistingComment() {
+        Posts post = publishedPost();
+        Comments ownerComment = comment(post, 20L, 2L, null, CommentStatus.PUBLISHED);
+        Comments moderatedComment = comment(post, 21L, 3L, null, CommentStatus.PUBLISHED);
+        PostStats stats = PostStats.init(post);
+        when(commentsRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(ownerComment));
+        when(commentsRepository.findByIdForUpdate(21L)).thenReturn(Optional.of(moderatedComment));
+        when(userRepository.existsByUserIdAndRole(2L, UserRole.ADMIN)).thenReturn(false);
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+        when(postStatsRepository.findByPostIdForUpdate(10L)).thenReturn(Optional.of(stats));
+        assertDoesNotThrow(() -> service.delete(2L, 20L));
+        assertDoesNotThrow(() -> service.delete(99L, 21L));
+
+        assertThat(ownerComment.getStatus()).isEqualTo(CommentStatus.DELETED);
+        assertThat(moderatedComment.getStatus()).isEqualTo(CommentStatus.DELETED);
+        verify(postAccessPolicy, never()).requireReadable(anyLong(), any());
     }
 
     @Test
@@ -146,7 +199,7 @@ class CommentServiceImplTest {
         when(authorAssembler.buildAuthorMap(anyList())).thenReturn(Map.of());
         when(commentLikesRepository.countByCommentIds(anyList())).thenReturn(List.of());
 
-        CommentListResponse response = service.list(10L, 40L, 2);
+        CommentListResponse response = service.list(2L, 10L, 40L, 2);
 
         assertThat(response.hasNext()).isTrue();
         assertThat(response.nextCursorId()).isEqualTo(20L);

@@ -2,6 +2,7 @@ package CamNecT.server.domain.community.repository.Posts;
 
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.BoardCode;
+import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.model.enums.PostStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -32,7 +33,16 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
           and (:code is null or p.board.code = :code)
           and (:cursorId is null or p.id < :cursorId)
           and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
-                           or p.content like concat('%', :keyword, '%') escape '!')
+                           or (p.content like concat('%', :keyword, '%') escape '!'
+                               and (p.accessType <> :pointRequiredAccess
+                                    or p.board.code <> :questionCode
+                                    or not exists (select 1 from AcceptedComments ac where ac.post = p)
+                                    or p.user.userId = :viewerUserId
+                                    or exists (select 1 from AcceptedComments viewerAnswer
+                                               where viewerAnswer.post = p
+                                                 and viewerAnswer.comment.userId = :viewerUserId)
+                                    or exists (select 1 from PostAccess pa
+                                               where pa.post = p and pa.user.userId = :viewerUserId))))
           and (:tagId is null or exists (
                 select 1 from PostTags pt
                 where pt.post = p and pt.tag.id = :tagId
@@ -44,6 +54,9 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("code") BoardCode code,
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
+            @Param("viewerUserId") Long viewerUserId,
+            @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
+            @Param("questionCode") BoardCode questionCode,
             @Param("cursorId") Long cursorId,
             Pageable pageable
     );
@@ -79,7 +92,16 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     where p.status = :status
       and (:code is null or p.board.code = :code)
       and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
-                       or p.content like concat('%', :keyword, '%') escape '!')
+                       or (p.content like concat('%', :keyword, '%') escape '!'
+                           and (p.accessType <> :pointRequiredAccess
+                                or p.board.code <> :questionCode
+                                or not exists (select 1 from AcceptedComments ac where ac.post = p)
+                                or p.user.userId = :viewerUserId
+                                or exists (select 1 from AcceptedComments viewerAnswer
+                                           where viewerAnswer.post = p
+                                             and viewerAnswer.comment.userId = :viewerUserId)
+                                or exists (select 1 from PostAccess pa
+                                           where pa.post = p and pa.user.userId = :viewerUserId))))
       and (:tagId is null or exists (
             select 1 from PostTags pt
             where pt.post = p and pt.tag.id = :tagId
@@ -96,6 +118,9 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("code") BoardCode code,
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
+            @Param("viewerUserId") Long viewerUserId,
+            @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
+            @Param("questionCode") BoardCode questionCode,
             @Param("cursorValue") Long cursorValue,   // hotScore 커서
             @Param("cursorId") Long cursorId,         // postId 커서
             Pageable pageable
@@ -109,7 +134,16 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     where p.status = :status
       and (:code is null or p.board.code = :code)
       and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
-                       or p.content like concat('%', :keyword, '%') escape '!')
+                       or (p.content like concat('%', :keyword, '%') escape '!'
+                           and (p.accessType <> :pointRequiredAccess
+                                or p.board.code <> :questionCode
+                                or not exists (select 1 from AcceptedComments ac where ac.post = p)
+                                or p.user.userId = :viewerUserId
+                                or exists (select 1 from AcceptedComments viewerAnswer
+                                           where viewerAnswer.post = p
+                                             and viewerAnswer.comment.userId = :viewerUserId)
+                                or exists (select 1 from PostAccess pa
+                                           where pa.post = p and pa.user.userId = :viewerUserId))))
       and (:tagId is null or exists (
             select 1 from PostTags pt
             where pt.post = p and pt.tag.id = :tagId
@@ -126,6 +160,9 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("code") BoardCode code,
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
+            @Param("viewerUserId") Long viewerUserId,
+            @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
+            @Param("questionCode") BoardCode questionCode,
             @Param("cursorValue") Long cursorValue,   // likeCount 커서
             @Param("cursorId") Long cursorId,
             Pageable pageable
@@ -138,7 +175,16 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     where p.status = :status
       and (:code is null or p.board.code = :code)
       and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
-                       or p.content like concat('%', :keyword, '%') escape '!')
+                       or (p.content like concat('%', :keyword, '%') escape '!'
+                           and (p.accessType <> :pointRequiredAccess
+                                or p.board.code <> :questionCode
+                                or not exists (select 1 from AcceptedComments ac where ac.post = p)
+                                or p.user.userId = :viewerUserId
+                                or exists (select 1 from AcceptedComments viewerAnswer
+                                           where viewerAnswer.post = p
+                                             and viewerAnswer.comment.userId = :viewerUserId)
+                                or exists (select 1 from PostAccess pa
+                                           where pa.post = p and pa.user.userId = :viewerUserId))))
       and (:tagId is null or exists (
             select 1 from PostTags pt
             where pt.post = p and pt.tag.id = :tagId
@@ -155,6 +201,9 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("code") BoardCode code,
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
+            @Param("viewerUserId") Long viewerUserId,
+            @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
+            @Param("questionCode") BoardCode questionCode,
             @Param("cursorValue") Long cursorValue,   // bookmarkCount 커서
             @Param("cursorId") Long cursorId,
             Pageable pageable

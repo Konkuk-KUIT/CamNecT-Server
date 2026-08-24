@@ -78,6 +78,7 @@ public class PostServiceImpl implements PostService {
     private final UploadTicketRepository uploadTicketRepository;
 
     private final PostAttachmentsService postAttachmentsService;
+    private final CommunityPostAccessPolicy postAccessPolicy;
     private final PointService pointService;
     private final PresignEngine presignEngine;
 
@@ -273,32 +274,12 @@ public class PostServiceImpl implements PostService {
                 .map(ac -> ac.getComment().getId())
                 .orElse(null);
 
-        ///  접근권한 관련 설정파트
-        boolean payRequired = post.getBoard().getCode() == BoardCode.QUESTION && acceptedOpt.isPresent();
-
-        ContentAccessStatus accessStatus;
-        Integer requiredPoints = null;
-        Integer myPoints = null;
-
-        if (payRequired) {
-            // 작성자 무료
-            if (Objects.equals(userId, post.getUser().getUserId())) {
-                accessStatus = ContentAccessStatus.GRANTED;
-                requiredPoints = questionViewCost;
-            } else if (postAccessRepository.existsByPost_IdAndUser_UserId(postId, userId)) {
-                accessStatus = ContentAccessStatus.GRANTED;
-                requiredPoints = questionViewCost;
-            } else {
-                myPoints = pointService.getBalance(userId);
-                requiredPoints = questionViewCost;
-                accessStatus = (myPoints >= questionViewCost)
-                        ? ContentAccessStatus.NEED_PURCHASE
-                        : ContentAccessStatus.INSUFFICIENT_POINTS;
-            }
-        } else {
-            accessStatus = ContentAccessStatus.GRANTED;
-        }
-        String content = accessStatus.canReadProtectedContent() ? post.getContent() : null;
+        CommunityPostAccessPolicy.AccessDecision accessDecision =
+                postAccessPolicy.evaluate(userId, post, acceptedOpt.isPresent());
+        ContentAccessStatus accessStatus = accessDecision.status();
+        Integer requiredPoints = accessDecision.requiredPoints();
+        Integer myPoints = accessDecision.myPoints();
+        String content = accessDecision.canRead() ? post.getContent() : null;
 
         /// 글쓴이 프로필
         AuthorDto author = post.isAnonymous()
@@ -489,15 +470,14 @@ public class PostServiceImpl implements PostService {
             throw new CustomException(CommunityErrorCode.POST_NOT_PUBLISHED);
         }
 
-        boolean isQuestion = post.getBoard().getCode() == BoardCode.QUESTION;
-
-        if (!isQuestion && post.getAccessType() != PostAccessType.POINT_REQUIRED) {
+        if (!postAccessPolicy.isPaywallActive(post)) {
             int bal = pointService.getBalance(user.getUserId());
             return new PurchasePostAccessResponse(postId, ContentAccessStatus.GRANTED, bal, true);
         }
 
-        // 2) 작성자는 무료
-        if (userId.equals(post.getUser().getUserId())) {
+        // 2) 질문 작성자와 채택 답변 작성자는 무료
+        if (userId.equals(post.getUser().getUserId())
+                || postAccessPolicy.isAcceptedAnswerAuthor(userId, postId)) {
             int bal = pointService.getBalance(user.getUserId());
             return new PurchasePostAccessResponse(postId, ContentAccessStatus.GRANTED, bal, true);
         }

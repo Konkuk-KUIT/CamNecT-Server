@@ -6,7 +6,6 @@ import CamNecT.server.domain.community.model.Posts.PostStats;
 import CamNecT.server.domain.community.model.Posts.PostTags;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.ContentAccessStatus;
-import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.repository.Comments.AcceptedCommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostAccessRepository;
 import CamNecT.server.domain.community.repository.Posts.PostAttachmentsRepository;
@@ -34,6 +33,7 @@ public class PostSummaryAssembler {
     private final PostTagsRepository postTagsRepository;
     private final PostAccessRepository postAccessRepository;
     private final AcceptedCommentsRepository acceptedCommentsRepository;
+    private final CommunityPostAccessPolicy postAccessPolicy;
 
     private final PointService pointService;
     private final PublicUrlIssuer publicUrlIssuer;
@@ -81,9 +81,13 @@ public class PostSummaryAssembler {
 
         // ===== access bulk 준비 =====
         List<Long> paywalledIds = posts.stream()
-                .filter(p -> p.getAccessType() == PostAccessType.POINT_REQUIRED)
+                .filter(p -> postAccessPolicy.isPaywallActive(p, acceptedPostIds.contains(p.getId())))
                 .map(Posts::getId)
                 .toList();
+
+        Set<Long> acceptedAnswerSet = (userId != null && !paywalledIds.isEmpty())
+                ? new HashSet<>(acceptedCommentsRepository.findAcceptedAnswerPostIds(userId, paywalledIds))
+                : Set.of();
 
         Set<Long> grantedSet = (userId != null && !paywalledIds.isEmpty())
                 ? new HashSet<>(postAccessRepository.findGrantedPostIds(userId, paywalledIds))
@@ -91,8 +95,9 @@ public class PostSummaryAssembler {
 
         Integer myPoints = null;
         boolean needBalance = (userId != null) && posts.stream().anyMatch(p ->
-                p.getAccessType() == PostAccessType.POINT_REQUIRED
+                postAccessPolicy.isPaywallActive(p, acceptedPostIds.contains(p.getId()))
                         && !Objects.equals(userId, p.getUser().getUserId())
+                        && !acceptedAnswerSet.contains(p.getId())
                         && !grantedSet.contains(p.getId())
         );
         if (needBalance) {
@@ -112,13 +117,18 @@ public class PostSummaryAssembler {
 
             // accessStatus 계산(원본 로직 그대로)
             ContentAccessStatus accessStatus;
-            boolean paywalled = p.getAccessType() == PostAccessType.POINT_REQUIRED;
+            boolean paywalled = postAccessPolicy.isPaywallActive(
+                    p,
+                    acceptedPostIds.contains(p.getId())
+            );
 
             if (!paywalled) {
                 accessStatus = ContentAccessStatus.GRANTED;
             } else if (userId == null) {
                 accessStatus = ContentAccessStatus.LOGIN_REQUIRED;
-            } else if (Objects.equals(userId, p.getUser().getUserId()) || grantedSet.contains(p.getId())) {
+            } else if (Objects.equals(userId, p.getUser().getUserId())
+                    || acceptedAnswerSet.contains(p.getId())
+                    || grantedSet.contains(p.getId())) {
                 accessStatus = ContentAccessStatus.GRANTED;
             } else {
                 int balance = (myPoints == null) ? 0 : myPoints;
@@ -156,7 +166,7 @@ public class PostSummaryAssembler {
                     p.getAccessType(),
                     accessStatus,
                     paywalled ? questionViewCost : null,
-                    paywalled ? myPoints : null
+                    paywalled && !accessStatus.canReadProtectedContent() ? myPoints : null
             ));
         }
 

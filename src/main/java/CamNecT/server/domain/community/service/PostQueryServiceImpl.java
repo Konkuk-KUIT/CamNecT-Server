@@ -3,6 +3,7 @@ package CamNecT.server.domain.community.service;
 import CamNecT.server.domain.community.dto.response.PostListResponse;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.BoardCode;
+import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.community.repository.Posts.*;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
@@ -35,16 +36,24 @@ public class PostQueryServiceImpl implements PostQueryService {
 
         Slice<Posts> slice = switch (sort) {
             case LATEST -> postsRepository.findFeedLatestWithFilter(
-                    PostStatus.PUBLISHED, code, tagId, kw, cursorId, PageRequest.of(0, limit)
+                    PostStatus.PUBLISHED, code, tagId, kw,
+                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    cursorId, PageRequest.of(0, limit)
             );
             case RECOMMENDED -> postsRepository.findFeedRecommended(
-                    PostStatus.PUBLISHED, code, tagId, kw, cursorValue, cursorId, PageRequest.of(0, limit)
+                    PostStatus.PUBLISHED, code, tagId, kw,
+                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case LIKE -> postsRepository.findFeedLikeDesc(
-                    PostStatus.PUBLISHED, code, tagId, kw, cursorValue, cursorId, PageRequest.of(0, limit)
+                    PostStatus.PUBLISHED, code, tagId, kw,
+                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case BOOKMARK -> postsRepository.findFeedBookmarkDesc(
-                    PostStatus.PUBLISHED, code, tagId, kw, cursorValue, cursorId, PageRequest.of(0, limit)
+                    PostStatus.PUBLISHED, code, tagId, kw,
+                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    cursorValue, cursorId, PageRequest.of(0, limit)
             );
         };
 
@@ -61,6 +70,9 @@ public class PostQueryServiceImpl implements PostQueryService {
                 null,          // board filter 없음
                 tagId,
                 null,          // keyword 없음
+                userId,
+                PostAccessType.POINT_REQUIRED,
+                BoardCode.QUESTION,
                 cursorValue,
                 cursorId,
                 PageRequest.of(0, limit)
