@@ -195,7 +195,8 @@ public class EmailVerificationService {
             token.linkUser(user);
 
             // 임시 토큰 발급(기존 로직 유지)
-            String verificationToken = jwtUtil.generateVerificationToken(user.getUserId(), user.getRole());
+            String verificationToken = jwtUtil.generateVerificationToken(
+                    user.getUserId(), user.getRole(), user.getPasswordHash());
             long expiresMinutes = jwtUtil.getVerificationTokenExpirationMs() / 60000L;
 
             return VerificationTransactionResult.success(

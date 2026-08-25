@@ -1,5 +1,7 @@
 package CamNecT.server.global.common.auth;
 
+import CamNecT.server.domain.users.model.UserStatus;
+import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.util.JwtUtil;
@@ -55,10 +57,12 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         Long userId = jwtUtil.getUserId(token);
-        accountAccessGuard.requireAccessible(userId);
+        Users user = accountAccessGuard.requireAccessible(userId);
         if (type == TokenType.ACCESS) {
             String sessionId = tokenSessionService.requireActiveAccess(userId, token);
             request.setAttribute("sessionId", sessionId);
+        } else {
+            requireCurrentVerificationToken(token, user);
         }
         request.setAttribute("userId", userId);
 
@@ -80,5 +84,23 @@ public class AuthInterceptor implements HandlerInterceptor {
     private boolean isAllowedForVerificationToken(String uri) {
         return uri.equals("/api/verification/documents")
                 || uri.startsWith("/api/verification/documents/");
+    }
+
+    private void requireCurrentVerificationToken(String token, Users user) {
+        if (user.getStatus() != UserStatus.ADMIN_PENDING) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+        }
+
+        try {
+            String expectedFingerprint = jwtUtil.getPasswordFingerprint(token);
+            if (!jwtUtil.matchesPasswordFingerprint(expectedFingerprint, user.getPasswordHash())) {
+                throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+            }
+        } catch (CustomException e) {
+            if (e.getErrorCode() == AuthErrorCode.INVALID_TOKEN) {
+                throw e;
+            }
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
+        }
     }
 }

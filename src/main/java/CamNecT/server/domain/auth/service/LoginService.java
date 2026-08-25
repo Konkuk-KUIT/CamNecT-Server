@@ -83,7 +83,8 @@ public class LoginService {
         LoginNextStep nextStep = resolveNext(user, latest);
 
         if (needsVerificationToken(nextStep)) {
-            String verification = jwtUtil.generateVerificationToken(user.getUserId(), user.getRole());
+            String verification = jwtUtil.generateVerificationToken(
+                    user.getUserId(), user.getRole(), user.getPasswordHash());
             return new LoginResponse(
                     "Bearer",
                     verification,

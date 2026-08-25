@@ -409,3 +409,32 @@
 - `ChatServiceTest` 11개와 `ChatRoomControllerContractTest` 1개: 총 12개 통과, 실패·오류·건너뜀 0개
 - 퇴장이 방·요청을 닫은 뒤 정확한 room ID의 종료 이벤트를 발행하는지, `/exit`와 `/complete-exit`가 하나의 컨트롤러·서비스 흐름을 공유하는지 검증한다.
 - `ChatWebSocketContractIntegrationTest` 2개도 통과해 Spring context에서 변경된 저장소 쿼리와 실제 STOMP 전송 구성이 정상 초기화되는지 함께 확인한다.
+
+### `verification-corrections-bind-document-token-lifecycle`
+
+관련 변경 흐름:
+
+- `7451306` (#261 연관): 회원가입 이메일 인증 뒤 3일짜리 `VERIFICATION` JWT 발급
+- `67bab81` (#275), `53d1e8b`: 비밀번호 변경·재설정 시 access/refresh 세션 폐기와 재설정 토큰 1회 사용 보완
+- `2af1cf9`, `1469035`: 문서 제출·관리자 검토의 최신 사용자 상태 잠금 보완
+
+발견한 문제:
+
+- 문서 인증 JWT는 사용자 ID·역할·타입·만료만 서명하고 서버 세션이나 계정 보안 상태와 결박하지 않았다. 비밀번호 변경·재설정으로 모든 세션을 폐기해도 이미 노출된 인증 JWT는 문서 목록·상세·다운로드·취소 API에 계속 접근할 수 있었다.
+- 관리자 승인으로 사용자가 `ACTIVE`가 된 뒤에도 인터셉터는 접근 가능한 계정이라는 이유만으로 같은 임시 토큰을 최대 3일 동안 허용했다.
+
+교정 내용:
+
+- 회원가입 인증과 승인대기 로그인에서 발급하는 `VERIFICATION` JWT에 발급 당시 bcrypt 해시의 SHA-256 지문을 서명된 claim으로 넣는다. 비밀번호 원문과 bcrypt 해시 자체는 토큰에 넣지 않는다.
+- 문서 API 진입 시 최신 사용자가 `ADMIN_PENDING`인지 확인하고, 토큰 지문을 현재 비밀번호 해시와 상수 시간 비교한다.
+- 상태 변경, 비밀번호 변경, 지문 claim 누락·불일치는 모두 기존 `INVALID_TOKEN`(41103)으로 거부한다.
+
+계약 영향:
+
+- 정상 승인대기 사용자의 문서 API와 opaque 토큰 응답 형식은 바뀌지 않는다.
+- 배포 전에 발급되어 지문 claim이 없는 기존 인증 JWT는 즉시 401로 무효화된다. 승인대기 사용자는 다시 로그인하면 새 토큰을 받을 수 있고, 승인 완료 사용자는 access token을 사용한다.
+
+검증:
+
+- `AuthInterceptorTest` 7개, `SignupEmailVerificationIntegrationTest` 4개, `LoginServicePushDeviceTest` 5개: 총 16개 통과, 실패·오류·건너뜀 0개
+- 현재 지문·승인대기 상태만 허용하고 비밀번호 변경, 승인 완료, 배포 전 형식 토큰을 41103으로 거부하는지 검증한다.

@@ -56,8 +56,10 @@ public class JwtUtil {
         return generateSessionToken(userId, role, TokenType.REFRESH, refreshTokenExpirationMs, sessionId);
     }
 
-    public String generateVerificationToken(Long userId, UserRole role) {
-        return generateToken(userId, role, TokenType.VERIFICATION, verificationTokenExpirationMs);
+    public String generateVerificationToken(Long userId, UserRole role, String passwordHash) {
+        return tokenBuilder(userId, role, TokenType.VERIFICATION, verificationTokenExpirationMs)
+                .claim(CLAIM_PASSWORD_FINGERPRINT, passwordFingerprint(passwordHash))
+                .compact();
     }
 
     public String generatePasswordResetToken(Long userId, UserRole role, String passwordHash) {
@@ -77,10 +79,6 @@ public class JwtUtil {
         return tokenBuilder(userId, role, type, expirationMs)
                 .claim(CLAIM_SESSION_ID, sessionId)
                 .compact();
-    }
-
-    private String generateToken(Long userId, UserRole role, TokenType type, long expirationMs) {
-        return tokenBuilder(userId, role, type, expirationMs).compact();
     }
 
     private io.jsonwebtoken.JwtBuilder tokenBuilder(
