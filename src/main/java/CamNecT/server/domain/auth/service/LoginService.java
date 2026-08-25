@@ -56,7 +56,9 @@ public class LoginService {
 
     @Transactional
     public LoginResponse login(LoginRequest req) {
-        Users user = userRepository.findByUsername(req.username())
+        Long userId = userRepository.findUserIdByUsername(req.username())
+                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_CREDENTIALS));
+        Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_CREDENTIALS));
 
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
