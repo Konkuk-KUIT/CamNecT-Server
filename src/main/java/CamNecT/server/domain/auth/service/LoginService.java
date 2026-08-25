@@ -16,7 +16,9 @@ import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
+import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.domain.users.repository.UserTagMapRepository;
 import CamNecT.server.domain.verification.document.model.DocumentVerificationSubmission;
 import CamNecT.server.domain.verification.document.repository.DocumentVerificationSubmissionRepository;
 import CamNecT.server.domain.verification.email.repository.EmailVerificationTokenRepository;
@@ -27,6 +29,7 @@ import CamNecT.server.global.jwt.service.TokenSessionService;
 import CamNecT.server.global.jwt.util.JwtFacade;
 import CamNecT.server.global.jwt.util.JwtUtil;
 import CamNecT.server.global.notification.service.PushDeviceService;
+import CamNecT.server.global.storage.service.GlobalPresignMethods;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -34,6 +37,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -52,8 +56,11 @@ public class LoginService {
     private final ExperienceRepository experienceRepository;
     private final EducationRepository educationRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
+    private final UserTagMapRepository userTagMapRepository;
+    private final UserFollowRepository userFollowRepository;
     private final TokenSessionService tokenSessionService;
     private final PushDeviceService pushDeviceService;
+    private final GlobalPresignMethods globalPresignMethods;
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse login(LoginRequest req) {
@@ -144,10 +151,13 @@ public class LoginService {
             throw new CustomException(AuthErrorCode.INVALID_CREDENTIALS);
         }
 
+        String profileImageKey = userProfileRepository.findProfileImageKeyByUserId(userId).orElse(null);
         certificateRepository.deleteByUser_UserId(userId);
         educationRepository.deleteByUser_UserId(userId);
         experienceRepository.deleteByUser_UserId(userId);
         emailVerificationTokenRepository.deleteByUser_UserId(userId);
+        userTagMapRepository.deleteAllByUserId(userId);
+        userFollowRepository.deleteAllByUserId(userId);
         userProfileRepository.deleteByUserId(userId);
 
         String suffix = userId + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
@@ -161,6 +171,9 @@ public class LoginService {
         userRepository.save(user);
         pushDeviceService.disableAllForUser(userId);
         tokenSessionService.revokeAll(userId);
+        if (profileImageKey != null) {
+            globalPresignMethods.deleteAfterCommit(Set.of(profileImageKey));
+        }
     }
 
     private LoginResponse issueTokenLoginResponse(Users user, LoginNextStep nextStep) {

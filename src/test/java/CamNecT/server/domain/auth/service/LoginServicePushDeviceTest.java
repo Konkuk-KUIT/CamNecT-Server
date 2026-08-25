@@ -13,14 +13,17 @@ import CamNecT.server.domain.report.service.UserReportPenaltyService;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.domain.users.repository.UserTagMapRepository;
 import CamNecT.server.domain.verification.email.repository.EmailVerificationTokenRepository;
 import CamNecT.server.domain.verification.document.repository.DocumentVerificationSubmissionRepository;
 import CamNecT.server.global.jwt.service.TokenSessionService;
 import CamNecT.server.global.jwt.util.JwtFacade;
 import CamNecT.server.global.jwt.util.JwtUtil;
 import CamNecT.server.global.notification.service.PushDeviceService;
+import CamNecT.server.global.storage.service.GlobalPresignMethods;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -33,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Method;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -81,6 +85,15 @@ class LoginServicePushDeviceTest {
 
     @Mock
     UserProfileRepository userProfileRepository;
+
+    @Mock
+    UserTagMapRepository userTagMapRepository;
+
+    @Mock
+    UserFollowRepository userFollowRepository;
+
+    @Mock
+    GlobalPresignMethods globalPresignMethods;
 
     @Mock
     InstitutionRepository institutionRepository;
@@ -157,6 +170,8 @@ class LoginServicePushDeviceTest {
                 .build();
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password", "encoded")).thenReturn(true);
+        when(userProfileRepository.findProfileImageKeyByUserId(1L))
+                .thenReturn(Optional.of("profile/user-1/images/avatar.png"));
 
         loginService.withdraw(1L, new WithdrawRequest("password"));
 
@@ -167,5 +182,8 @@ class LoginServicePushDeviceTest {
         InOrder inOrder = inOrder(pushDeviceService, tokenSessionService);
         inOrder.verify(pushDeviceService).disableAllForUser(1L);
         inOrder.verify(tokenSessionService).revokeAll(1L);
+        verify(userTagMapRepository).deleteAllByUserId(1L);
+        verify(userFollowRepository).deleteAllByUserId(1L);
+        verify(globalPresignMethods).deleteAfterCommit(Set.of("profile/user-1/images/avatar.png"));
     }
 }
