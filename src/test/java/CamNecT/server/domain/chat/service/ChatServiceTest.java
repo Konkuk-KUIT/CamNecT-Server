@@ -85,7 +85,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void exitKeepsSeparateSemanticsAndDoesNotPublishRoomClosedEvent() {
+    void exitPublishesRoomClosedEventBecauseLeavingClosesTheRoom() {
         Users user = activeUser(1L);
         ChatRoom room = mock(ChatRoom.class);
         ChatRequest request = mock(ChatRequest.class);
@@ -98,7 +98,11 @@ class ChatServiceTest {
 
         verify(room).leave(1L);
         verify(request).closeRequest();
-        verifyNoInteractions(eventPublisher);
+        ArgumentCaptor<ChatRoomClosedCommittedEvent> eventCaptor =
+                ArgumentCaptor.forClass(ChatRoomClosedCommittedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().closedEvent().type()).isEqualTo("ROOM_CLOSED");
+        assertThat(eventCaptor.getValue().closedEvent().roomId()).isEqualTo(99L);
     }
 
     @Test

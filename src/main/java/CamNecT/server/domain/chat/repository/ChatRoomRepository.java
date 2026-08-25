@@ -50,8 +50,7 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
     @Query("SELECT r FROM ChatRoom r " +
             "JOIN FETCH r.requester " +
             "JOIN FETCH r.receiver " +
-            "JOIN FETCH r.request req " +
-            "LEFT JOIN FETCH req.requestInterests " +
+            "JOIN FETCH r.request " +
             "WHERE r.id = :roomId " +
             "AND ((r.requester.userId = :userId AND r.requesterExited = false) " +
             "OR (r.receiver.userId = :userId AND r.receiverExited = false))")

@@ -746,6 +746,7 @@ public class ChatService {
             throw new CustomException(CoffeeChatErrorCode.REQUESTER_NOT_FOUND);
         }
         request.closeRequest();
+        eventPublisher.publishEvent(new ChatRoomClosedCommittedEvent(roomId));
 
     }
 

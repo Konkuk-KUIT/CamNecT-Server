@@ -376,3 +376,36 @@
 
 - `WebSocketOrderingConfigTest` 1개와 `ChatWebSocketContractIntegrationTest` 2개: 총 3개 통과, 실패·오류·건너뜀 0개
 - 구성 단위 테스트로 inbound·publish 양방향 순서 보존 옵션을 고정하고, 실제 STOMP 연결에서 빠르게 연속 전송한 두 메시지의 저장·broadcast 순서를 검증한다.
+
+### `chat-corrections-restore-exit-contract`
+
+관련 변경 흐름:
+
+- `9e3447d`: `/exit`, `/close`, `/complete-exit`와 채팅방·요청 종료 흐름 도입
+- `46a179a`: 종료·퇴장 시 사용하는 비관적 잠금 상세 조회 도입
+- `93e476d` (#281): 커밋 후 `ROOM_CLOSED` 전송을 `/close`에 추가하면서 `/complete-exit` 경로와 중복 서비스 로직 제거
+- `9727492` (#281 병합 뒤 브랜치 후속): 퇴장 이벤트와 `/complete-exit`를 복원했지만 main에는 포함되지 않았고 별도 서비스 흐름을 다시 추가
+
+발견한 문제:
+
+- `ChatRoom.leave`는 퇴장 표시와 함께 방 상태를 `CLOSE`로 만들고 서비스는 연결된 요청도 종료하지만, `/exit`만 `ROOM_CLOSED` 이벤트를 발행하지 않았다. 상대 사용자의 실시간 화면은 서버에서 이미 닫힌 방을 계속 열린 상태로 표시할 수 있었다.
+- 기존 프론트가 사용할 수 있는 `/complete-exit`가 #281에서 삭제되어 같은 동작을 하는 `/exit`가 남아 있어도 기존 요청은 404가 됐다.
+- 종료·퇴장 전용 잠금 조회는 사용하지 않는 요청 관심 태그 collection까지 fetch join했다. 비관적 잠금 쿼리의 결과 행과 잠금 작업을 불필요하게 늘렸다.
+
+교정 내용:
+
+- `/exit`도 방·요청 상태 변경 뒤 `ChatRoomClosedCommittedEvent`를 발행한다. 기존 listener가 트랜잭션 커밋 뒤 상대에게 `ROOM_CLOSED`를 전달한다.
+- `/complete-exit`를 기존 `/exit` 컨트롤러 메서드의 호환 alias로 복원한다. 컨트롤러와 서비스 양쪽 모두 별도 종료 로직을 만들지 않는다.
+- 잠금 상세 조회에서는 requester, receiver, request만 fetch하고 관심 태그 fetch를 제거한다. 태그가 필요한 일반 상세 조회는 기존 fetch를 유지한다.
+
+계약 영향:
+
+- `/exit`의 요청·응답 형식은 유지되고 상대 사용자가 방 종료 이벤트를 추가로 받는다.
+- `/complete-exit`는 `/exit`와 같은 검증·상태 변경·응답을 사용해 기존 프론트 호출을 다시 수용한다.
+- 조회 결과와 오류 코드는 바뀌지 않는다.
+
+검증:
+
+- `ChatServiceTest` 11개와 `ChatRoomControllerContractTest` 1개: 총 12개 통과, 실패·오류·건너뜀 0개
+- 퇴장이 방·요청을 닫은 뒤 정확한 room ID의 종료 이벤트를 발행하는지, `/exit`와 `/complete-exit`가 하나의 컨트롤러·서비스 흐름을 공유하는지 검증한다.
+- `ChatWebSocketContractIntegrationTest` 2개도 통과해 Spring context에서 변경된 저장소 쿼리와 실제 STOMP 전송 구성이 정상 초기화되는지 함께 확인한다.
