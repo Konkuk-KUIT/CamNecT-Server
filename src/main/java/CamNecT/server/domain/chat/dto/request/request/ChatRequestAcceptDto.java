@@ -5,6 +5,6 @@ import jakarta.validation.constraints.Positive;
 
 public record ChatRequestAcceptDto(
         @NotNull @Positive Long requestId,
-        boolean isAccepted
+        @NotNull Boolean isAccepted
 ) {
 }

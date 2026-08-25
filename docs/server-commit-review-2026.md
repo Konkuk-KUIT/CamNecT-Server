@@ -182,3 +182,28 @@
 
 - `DocumentVerificationStateLockingTest` 2개와 `AdminDocumentVerificationLockingTest` 2개: 총 4개 통과, 실패·오류·건너뜀 0개
 - 최신 사용자 상태를 잠근 뒤 저장소·업로드 작업 전에 거부하는지와, 탈퇴 사용자의 승인 심사가 진행되지 않는지 검증한다.
+
+### `chat-corrections-require-request-decision`
+
+관련 변경 흐름:
+
+- `84436a6` (#268): 커피챗 REST 요청 검증과 오류 문서 보완
+
+발견한 문제:
+
+- 수락 여부가 원시 타입 `boolean`이라 JSON에서 `isAccepted` 필드를 빠뜨려도 Jackson이 `false`로 채웠다. 단순 입력 누락이 검증 오류가 아니라 실제 거절 처리로 이어지는 파괴적인 기본값이었다.
+
+교정 내용:
+
+- 필드를 `@NotNull Boolean`으로 바꿔 누락과 명시적인 `false`를 구분한다.
+- JSON 필드명과 명시적인 `true`/`false` 요청 계약은 그대로 유지한다.
+
+계약 영향:
+
+- 명시적인 수락·거절 요청은 바뀌지 않는다.
+- 결정 필드가 없는 요청은 기존 OpenAPI 문서대로 서비스 호출 전에 400 검증 오류가 된다.
+
+검증:
+
+- `ChatRequestAcceptDtoValidationTest`: 1개 통과, 실패·오류·건너뜀 0개
+- `ChatRequestAcceptDtoValidationTest`에서 `isAccepted`가 빠진 JSON이 `false`가 아닌 `null`로 역직렬화되고 제약 위반이 되는지 검증한다.
