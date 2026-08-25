@@ -76,7 +76,7 @@ public class InMemoryTokenSessionStore implements TokenSessionStore {
     }
 
     @Override
-    public void deleteAll(Long userId) {
+    public synchronized void deleteAll(Long userId) {
         userSessions.remove(userId);
     }
 

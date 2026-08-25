@@ -8,6 +8,7 @@ import CamNecT.server.global.jwt.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Modifier;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,6 +111,15 @@ class TokenSessionServiceTest {
 
         assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, tokensA.access()));
         assertThrows(CustomException.class, () -> tokenSessionService.requireActiveAccess(1L, tokensB.access()));
+    }
+
+    @Test
+    void inMemoryRevokeAllSerializesWithRefreshRotation() throws NoSuchMethodException {
+        int modifiers = InMemoryTokenSessionStore.class
+                .getMethod("deleteAll", Long.class)
+                .getModifiers();
+
+        assertThat(Modifier.isSynchronized(modifiers)).isTrue();
     }
 
     private Tokens tokens(Long userId, String sessionId) {
