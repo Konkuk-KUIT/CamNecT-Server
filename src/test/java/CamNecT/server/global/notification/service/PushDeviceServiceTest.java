@@ -3,6 +3,8 @@ package CamNecT.server.global.notification.service;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.notification.dto.request.RegisterPushTokenRequest;
 import CamNecT.server.global.notification.model.Platform;
 import CamNecT.server.global.notification.model.PushDevice;
@@ -13,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -82,6 +85,25 @@ class PushDeviceServiceTest {
         verify(pushDeviceRepository).save(org.mockito.ArgumentMatchers.argThat(device ->
                 device.getDeviceId().equals("device") && device.getFcmToken().equals("token")
         ));
+    }
+
+    @Test
+    void registerRejectsUserWithdrawnWhileWaitingForTheUserLock() {
+        RegisterPushTokenRequest request = new RegisterPushTokenRequest(
+                "device", Platform.WEB, "token");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(
+                Users.builder().userId(1L).status(UserStatus.WITHDRAWN).build()
+        ));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> pushDeviceService.register(1L, request)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_WITHDRAWN);
+        verify(userRepository).lockUserRow(1L);
+        verify(pushDeviceRepository, org.mockito.Mockito.never())
+                .disableTokenForOtherUsers("token", 1L);
     }
 
     @Test

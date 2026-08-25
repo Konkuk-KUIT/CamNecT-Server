@@ -32,6 +32,9 @@ public class PushDeviceService {
         if (user.getStatus() == UserStatus.SUSPENDED) {
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        }
 
         // 동일 FCM 토큰이 이전 로그인 사용자의 활성 디바이스로 남아 잘못 전송되는 것을 방지한다.
         pushDeviceRepository.disableTokenForOtherUsers(token, userId);

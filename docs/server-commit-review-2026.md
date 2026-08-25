@@ -95,3 +95,30 @@
 
 - `CertificateServiceLockingTest`, `EducationServiceLockingTest`, `ExperienceServiceLockingTest`, `DeletionLockContractTest`: 총 6개 통과, 실패·오류·건너뜀 0개
 - 자격증·학력의 생성·수정·삭제가 모두 사용자 행 잠금을 사용하고, 경력은 사용자 잠금 뒤 일반 조회로 처리되는 순서를 검증한다.
+
+### `notification-corrections-block-withdrawn-device-registration`
+
+관련 변경 흐름:
+
+- `fd04690`, `546354d`: 사용자별 푸시 기기 등록·갱신 흐름 도입 및 보완
+- `28b6904` (#285): 탈퇴와 연관 데이터 변경에 사용자 행 잠금 규약 도입
+- `81acd66` (#284): 푸시 알림 흐름 보완
+
+발견한 문제:
+
+- 푸시 기기 등록은 사용자 행을 잠근 뒤 정지 상태만 거부했다. 요청 인증 직후 탈퇴가 먼저 완료되면, 대기하던 등록 트랜잭션이 탈퇴 상태를 읽고도 새 기기를 `enabled=true`로 저장할 수 있었다.
+
+교정 내용:
+
+- 사용자 행 잠금 뒤 상태가 `WITHDRAWN`이면 저장소 변경 전에 기존 `USER_WITHDRAWN` 오류로 중단한다.
+- 승인 대기 사용자의 기존 푸시 등록 계약은 유지한다.
+
+계약 영향:
+
+- 정상 사용자와 승인 대기 사용자의 요청·응답은 바뀌지 않는다.
+- 탈퇴가 먼저 확정된 요청만 거부된다.
+
+검증:
+
+- `PushDeviceServiceTest`: 6개 통과, 실패·오류·건너뜀 0개
+- `PushDeviceServiceTest`에서 잠금 뒤 탈퇴 상태를 반환하고, 기기 비활성화·저장 로직에 진입하지 않는지 검증한다.
