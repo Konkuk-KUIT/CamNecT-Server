@@ -7,6 +7,7 @@ import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.service.TokenSessionService;
+import CamNecT.server.global.jwt.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ public class PasswordService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final TokenSessionService tokenSessionService;
+    private final JwtUtil jwtUtil;
 
     @Transactional
     public void updateMyPassword(Long userId, UpdatePasswordRequest req) {
@@ -38,10 +40,17 @@ public class PasswordService {
     }
 
     @Transactional
-    public void resetPasswordByUserId(Long userId, String newPassword) {
+    public void resetPasswordByUserId(
+            Long userId,
+            String newPassword,
+            String expectedPasswordFingerprint
+    ) {
         Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
         validateRecoverableUser(user);
+        if (!jwtUtil.matchesPasswordFingerprint(expectedPasswordFingerprint, user.getPasswordHash())) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+        }
 
         resetPassword(user, newPassword);
         tokenSessionService.revokeAll(userId);

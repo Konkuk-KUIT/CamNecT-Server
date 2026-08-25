@@ -39,6 +39,7 @@ class PasswordResetIntegrationTest {
     private static final String WRONG_CODE = "000000";
     private static final String CURRENT_PASSWORD = "oldpass1";
     private static final String NEW_PASSWORD = "newpass2";
+    private static final String REPLAY_PASSWORD = "thirdpass3";
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -48,7 +49,7 @@ class PasswordResetIntegrationTest {
     @Autowired JwtUtil jwtUtil;
 
     @Test
-    void verifiedResetTokenChangesPasswordAndReturnsEmpty204() throws Exception {
+    void verifiedResetTokenChangesPasswordOnceAndRejectsReplay() throws Exception {
         Users user = createRecoverableUser();
         tokenRepository.save(EmailVerificationToken.issueForEmail(user.getEmail(), VALID_CODE, 30));
 
@@ -73,6 +74,14 @@ class PasswordResetIntegrationTest {
         Users changed = userRepository.findById(user.getUserId()).orElseThrow();
         assertThat(passwordEncoder.matches(NEW_PASSWORD, changed.getPasswordHash())).isTrue();
         assertThat(passwordEncoder.matches(CURRENT_PASSWORD, changed.getPasswordHash())).isFalse();
+
+        reset(resetToken, REPLAY_PASSWORD)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(41103));
+
+        Users afterReplay = userRepository.findById(user.getUserId()).orElseThrow();
+        assertThat(passwordEncoder.matches(NEW_PASSWORD, afterReplay.getPasswordHash())).isTrue();
+        assertThat(passwordEncoder.matches(REPLAY_PASSWORD, afterReplay.getPasswordHash())).isFalse();
     }
 
     @Test
@@ -104,7 +113,8 @@ class PasswordResetIntegrationTest {
     @Test
     void resetPasswordReturnsDocumentedValidationErrors() throws Exception {
         Users user = createRecoverableUser();
-        String resetToken = jwtUtil.generatePasswordResetToken(user.getUserId(), user.getRole());
+        String resetToken = jwtUtil.generatePasswordResetToken(
+                user.getUserId(), user.getRole(), user.getPasswordHash());
 
         reset(resetToken, "short1")
                 .andExpect(status().isBadRequest())
@@ -141,7 +151,8 @@ class PasswordResetIntegrationTest {
 
     @Test
     void resetPasswordReturnsNotFoundWhenTokenUserDoesNotExist() throws Exception {
-        String resetToken = jwtUtil.generatePasswordResetToken(Long.MAX_VALUE, UserRole.USER);
+        String resetToken = jwtUtil.generatePasswordResetToken(
+                Long.MAX_VALUE, UserRole.USER, "missing-user-hash");
 
         reset(resetToken, NEW_PASSWORD)
                 .andExpect(status().isNotFound())
@@ -151,7 +162,8 @@ class PasswordResetIntegrationTest {
     @Test
     void resetPasswordRechecksAccountStatusAfterTokenWasIssued() throws Exception {
         Users suspended = createRecoverableUser();
-        String suspendedToken = jwtUtil.generatePasswordResetToken(suspended.getUserId(), suspended.getRole());
+        String suspendedToken = jwtUtil.generatePasswordResetToken(
+                suspended.getUserId(), suspended.getRole(), suspended.getPasswordHash());
         suspended.changeStatus(UserStatus.SUSPENDED);
         userRepository.saveAndFlush(suspended);
 
@@ -160,7 +172,8 @@ class PasswordResetIntegrationTest {
                 .andExpect(jsonPath("$.code").value(41302));
 
         Users withdrawn = createRecoverableUser();
-        String withdrawnToken = jwtUtil.generatePasswordResetToken(withdrawn.getUserId(), withdrawn.getRole());
+        String withdrawnToken = jwtUtil.generatePasswordResetToken(
+                withdrawn.getUserId(), withdrawn.getRole(), withdrawn.getPasswordHash());
         withdrawn.changeStatus(UserStatus.WITHDRAWN);
         userRepository.saveAndFlush(withdrawn);
 

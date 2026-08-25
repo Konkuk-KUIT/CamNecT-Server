@@ -7,6 +7,7 @@ import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.service.TokenSessionService;
+import CamNecT.server.global.jwt.util.JwtUtil;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -25,8 +26,9 @@ class PasswordServiceLockingTest {
     private final UserRepository userRepository = mock(UserRepository.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
     private final TokenSessionService tokenSessionService = mock(TokenSessionService.class);
+    private final JwtUtil jwtUtil = mock(JwtUtil.class);
     private final PasswordService service =
-            new PasswordService(userRepository, passwordEncoder, tokenSessionService);
+            new PasswordService(userRepository, passwordEncoder, tokenSessionService, jwtUtil);
 
     @Test
     void updateLocksUserBeforeChangingPassword() {
@@ -54,10 +56,30 @@ class PasswordServiceLockingTest {
 
         CustomException exception = assertThrows(
                 CustomException.class,
-                () -> service.resetPasswordByUserId(1L, "newpass2")
+                () -> service.resetPasswordByUserId(1L, "newpass2", "fingerprint")
         );
 
         assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_WITHDRAWN);
+        verifyNoInteractions(passwordEncoder, tokenSessionService);
+    }
+
+    @Test
+    void resetRejectsFingerprintFromAnAlreadyUsedToken() {
+        Users user = Users.builder()
+                .userId(1L)
+                .passwordHash("changed-hash")
+                .status(UserStatus.ACTIVE)
+                .build();
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(jwtUtil.matchesPasswordFingerprint("old-fingerprint", "changed-hash"))
+                .thenReturn(false);
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.resetPasswordByUserId(1L, "newpass2", "old-fingerprint")
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.INVALID_TOKEN);
         verifyNoInteractions(passwordEncoder, tokenSessionService);
     }
 }

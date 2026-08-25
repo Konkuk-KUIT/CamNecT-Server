@@ -140,7 +140,8 @@ public class EmailVerificationService {
             token.markUsed();
             token.linkUser(user);
 
-            String resetToken = jwtUtil.generatePasswordResetToken(user.getUserId(), user.getRole());
+            String resetToken = jwtUtil.generatePasswordResetToken(
+                    user.getUserId(), user.getRole(), user.getPasswordHash());
             long expiresMinutes = jwtUtil.getVerificationTokenExpirationMs() / 60000L;
 
             return VerificationTransactionResult.success(
@@ -159,7 +160,8 @@ public class EmailVerificationService {
         }
 
         Long userId = jwtUtil.getUserId(req.resetToken());
-        passwordService.resetPasswordByUserId(userId, req.newPassword());
+        String passwordFingerprint = jwtUtil.getPasswordFingerprint(req.resetToken());
+        passwordService.resetPasswordByUserId(userId, req.newPassword(), passwordFingerprint);
     }
 
     public VerifySignupEmailResponse verifySignupAndCreateUser(VerifySignupEmailRequest req) {

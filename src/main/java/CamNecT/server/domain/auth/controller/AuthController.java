@@ -271,7 +271,7 @@ public class AuthController {
         return emailVerificationService.verifyPasswordResetEmail(req);
     }
 
-    @Operation(summary = "비밀번호 재설정", description = "검증된 resetToken으로 비밀번호를 변경합니다.")
+    @Operation(summary = "비밀번호 재설정", description = "검증된 resetToken으로 비밀번호를 한 번만 변경할 수 있습니다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "비밀번호 재설정 성공", content = @Content),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 resetToken·새 비밀번호 누락 / 41010 비밀번호 정책 위반 / 41011 기존 비밀번호와 동일", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

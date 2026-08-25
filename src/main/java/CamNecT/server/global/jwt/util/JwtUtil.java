@@ -15,7 +15,10 @@ import org.springframework.util.StringUtils;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.UUID;
 
@@ -26,6 +29,7 @@ public class JwtUtil {
     private static final String CLAIM_TYPE = "type";
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_SESSION_ID = "sid";
+    private static final String CLAIM_PASSWORD_FINGERPRINT = "pwd";
 
     private final SecretKey key;
     private final long accessTokenExpirationMs;
@@ -56,8 +60,10 @@ public class JwtUtil {
         return generateToken(userId, role, TokenType.VERIFICATION, verificationTokenExpirationMs);
     }
 
-    public String generatePasswordResetToken(Long userId, UserRole role) {
-        return generateToken(userId, role, TokenType.PASSWORD_RESET, verificationTokenExpirationMs);
+    public String generatePasswordResetToken(Long userId, UserRole role, String passwordHash) {
+        return tokenBuilder(userId, role, TokenType.PASSWORD_RESET, verificationTokenExpirationMs)
+                .claim(CLAIM_PASSWORD_FINGERPRINT, passwordFingerprint(passwordHash))
+                .compact();
     }
 
     private String generateSessionToken(
@@ -148,6 +154,25 @@ public class JwtUtil {
         }
     }
 
+    public String getPasswordFingerprint(String token) {
+        Object raw = parseClaims(token).get(CLAIM_PASSWORD_FINGERPRINT);
+        if (raw == null || !StringUtils.hasText(raw.toString())) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED,
+                    new IllegalArgumentException("토큰 password fingerprint claim이 없습니다."));
+        }
+        return raw.toString();
+    }
+
+    public boolean matchesPasswordFingerprint(String expectedFingerprint, String passwordHash) {
+        if (!StringUtils.hasText(expectedFingerprint)) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                expectedFingerprint.getBytes(StandardCharsets.UTF_8),
+                passwordFingerprint(passwordHash).getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
     public Instant getExpiration(String token) {
         Date expiration = parseClaims(token).getExpiration();
         return expiration.toInstant();
@@ -165,6 +190,20 @@ public class JwtUtil {
             UUID.fromString(sessionId);
         } catch (IllegalArgumentException e) {
             throw new CustomException(ErrorCode.INTERNAL_ERROR, new IllegalArgumentException("sessionId is not a UUID", e));
+        }
+    }
+
+    private String passwordFingerprint(String passwordHash) {
+        if (!StringUtils.hasText(passwordHash)) {
+            throw new CustomException(ErrorCode.INTERNAL_ERROR,
+                    new IllegalArgumentException("passwordHash is blank"));
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(passwordHash.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new CustomException(ErrorCode.INTERNAL_ERROR, e);
         }
     }
 
