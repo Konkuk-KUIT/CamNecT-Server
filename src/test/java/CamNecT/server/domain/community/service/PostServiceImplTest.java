@@ -243,6 +243,7 @@ class PostServiceImplTest {
         service.delete(1L, 10L);
 
         InOrder order = inOrder(commentLikesRepository, acceptedCommentsRepository, commentsRepository);
+        order.verify(commentsRepository).findAllByPostIdForUpdate(10L);
         order.verify(commentLikesRepository).deleteByPostId(10L);
         order.verify(acceptedCommentsRepository).deleteByPost_Id(10L);
         order.verify(commentsRepository).deleteRepliesByPostId(10L);

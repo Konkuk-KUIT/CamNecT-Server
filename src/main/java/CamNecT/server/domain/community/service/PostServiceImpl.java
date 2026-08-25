@@ -186,6 +186,10 @@ public class PostServiceImpl implements PostService {
                 && acceptedCommentsRepository.existsByPost_Id(postId)) {
             throw new CustomException(CommunityErrorCode.CANNOT_DELETE_ACCEPTED_QUESTION);
         }
+
+        // 댓글 좋아요가 의존관계 정리 이후 다시 추가되지 않도록 댓글 행을 먼저 잠근다.
+        commentsRepository.findAllByPostIdForUpdate(postId);
+
         // 1) 댓글 의존 관계 -> 대댓글 -> 루트 댓글 순서로 하드 삭제
         commentLikesRepository.deleteByPostId(postId);
         acceptedCommentsRepository.deleteByPost_Id(postId);

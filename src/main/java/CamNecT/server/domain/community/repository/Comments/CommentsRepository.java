@@ -19,6 +19,10 @@ public interface CommentsRepository extends JpaRepository<Comments, Long> {
     @Query("select c from Comments c where c.id = :commentId")
     Optional<Comments> findByIdForUpdate(@Param("commentId") Long commentId);
 
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Comments c where c.post.id = :postId order by c.id asc")
+    List<Comments> findAllByPostIdForUpdate(@Param("postId") Long postId);
+
     @Query("""
         select c
         from Comments c

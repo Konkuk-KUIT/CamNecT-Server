@@ -22,6 +22,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.Optional;
 
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -82,10 +83,14 @@ class LoginServicePushDeviceTest {
                 .passwordHash("encoded")
                 .status(UserStatus.ACTIVE)
                 .build();
-        when(userRepository.findByUserId(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password", "encoded")).thenReturn(true);
 
         loginService.withdraw(1L, new WithdrawRequest("password"));
+
+        InOrder deletionOrder = inOrder(userRepository, experienceRepository);
+        deletionOrder.verify(userRepository).findByIdForUpdate(1L);
+        deletionOrder.verify(experienceRepository).deleteByUser_UserId(1L);
 
         InOrder inOrder = inOrder(pushDeviceService, tokenSessionService);
         inOrder.verify(pushDeviceService).disableAllForUser(1L);
