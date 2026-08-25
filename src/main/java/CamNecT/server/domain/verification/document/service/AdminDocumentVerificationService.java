@@ -118,17 +118,14 @@ public class AdminDocumentVerificationService {
             throw new CustomException(VerificationErrorCode.ONLY_PENDING_CAN_REVIEW);
         }
 
-        Users user = usersRepository.findById(s.getUserId())
+        Users user = usersRepository.findByIdForUpdate(s.getUserId())
                 .orElseThrow(() -> new CustomException(VerificationErrorCode.USER_NOT_FOUND));
+        if (user.getStatus() != UserStatus.ADMIN_PENDING) {
+            throw new CustomException(VerificationErrorCode.ONLY_PENDING_CAN_REVIEW);
+        }
 
         //APPROVE
         if (req.decision() == AdminReviewDocumentVerificationRequest.Decision.APPROVE) {
-
-            // 정책: ADMIN_PENDING만 승인 가능
-            if (user.getStatus() != UserStatus.ADMIN_PENDING) {
-                throw new CustomException(VerificationErrorCode.ONLY_PENDING_CAN_REVIEW);
-            }
-
             // 승인 시 관리자 입력값을 UserProfile에 반영
             applyProfileInfoForApprove(user.getUserId(), req);
 
