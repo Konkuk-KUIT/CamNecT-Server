@@ -74,7 +74,7 @@ public class ActivityAttachmentService {
         userRepository.lockUserRow(userId);
 
         LocalDateTime now = LocalDateTime.now();
-        ticketRepo.bulkExpirePendingByUserPurpose(userId, UploadPurpose.ACTIVITY_ATTACHMENT);
+        ticketRepo.bulkExpirePendingByUserPurpose(userId, UploadPurpose.ACTIVITY_ATTACHMENT, now);
 
         long pendingActive = ticketRepo.countByUserIdAndPurposeAndStatusAndExpiresAtAfter(
                 userId, UploadPurpose.ACTIVITY_ATTACHMENT, UploadTicket.Status.PENDING, now
