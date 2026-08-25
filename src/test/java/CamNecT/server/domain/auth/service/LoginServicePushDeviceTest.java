@@ -28,7 +28,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.lang.reflect.Method;
 import java.util.Optional;
 
 import static org.mockito.Mockito.inOrder;
@@ -87,6 +90,16 @@ class LoginServicePushDeviceTest {
 
     @InjectMocks
     LoginService loginService;
+
+    @Test
+    void loginUsesReadCommittedSoChecksAfterTheUserLockSeeCurrentState() throws NoSuchMethodException {
+        Method login = LoginService.class.getMethod("login", LoginRequest.class);
+
+        Transactional transactional = login.getAnnotation(Transactional.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.isolation()).isEqualTo(Isolation.READ_COMMITTED);
+    }
 
     @Test
     void loginLocksLatestUserStateBeforeCheckingPasswordAndCreatingSession() {
