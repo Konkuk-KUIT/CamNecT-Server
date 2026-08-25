@@ -1,6 +1,7 @@
 package CamNecT.server.domain.auth.service;
 
 import CamNecT.server.domain.profile.dto.request.UpdatePasswordRequest;
+import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
@@ -23,8 +24,9 @@ public class PasswordService {
 
     @Transactional
     public void updateMyPassword(Long userId, UpdatePasswordRequest req) {
-        Users user = userRepository.findById(userId)
+        Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+        validateRecoverableUser(user);
 
         if (!passwordEncoder.matches(req.currentPassword(), user.getPasswordHash())) {
             throw new CustomException(AuthErrorCode.INVALID_CREDENTIALS);
@@ -37,8 +39,9 @@ public class PasswordService {
 
     @Transactional
     public void resetPasswordByUserId(Long userId, String newPassword) {
-        Users user = userRepository.findById(userId)
+        Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
+        validateRecoverableUser(user);
 
         resetPassword(user, newPassword);
         tokenSessionService.revokeAll(userId);
@@ -51,6 +54,15 @@ public class PasswordService {
         }
 
         user.changePasswordHash(passwordEncoder.encode(newPassword));
+    }
+
+    private void validateRecoverableUser(Users user) {
+        if (user.getStatus() == UserStatus.SUSPENDED) {
+            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
+        }
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        }
     }
 
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(

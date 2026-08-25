@@ -159,9 +159,6 @@ public class EmailVerificationService {
         }
 
         Long userId = jwtUtil.getUserId(req.resetToken());
-        Users user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
-        validateRecoverableUser(user);
         passwordService.resetPasswordByUserId(userId, req.newPassword());
     }
 
