@@ -49,7 +49,7 @@ public class ExperienceService {
     @Transactional
     public void updateExperience(Long userId, Long experienceId, ExperienceRequest request) {
         accessGuard.requireAuthenticatedUserForUpdate(userId);
-        Experience experience = experienceRepository.findByIdForUpdate(experienceId)
+        Experience experience = experienceRepository.findById(experienceId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.EXPERIENCE_NOT_FOUND));
         // 본인 확인
         if (!experience.getUser().getUserId().equals(userId)) {
@@ -68,7 +68,7 @@ public class ExperienceService {
     @Transactional
     public void deleteExperience(Long userId, Long experienceId) {
         accessGuard.requireAuthenticatedUserForUpdate(userId);
-        Experience experience = experienceRepository.findByIdForUpdate(experienceId)
+        Experience experience = experienceRepository.findById(experienceId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.EXPERIENCE_NOT_FOUND));
 
         if (!experience.getUser().getUserId().equals(userId)) {

@@ -24,7 +24,7 @@ public class CertificateService {
 
     @Transactional
     public void addCertificate(Long userId, CertificateRequest request) {
-        Users user = accessGuard.requireAuthenticatedUser(userId);
+        Users user = accessGuard.requireAuthenticatedUserForUpdate(userId);
 
         Certificate certificate = Certificate.builder()
                 .user(user)
@@ -49,7 +49,7 @@ public class CertificateService {
 
     @Transactional
     public void updateCertificate(Long userId, Long certificateId, CertificateRequest request) {
-        accessGuard.requireAuthenticatedUser(userId);
+        accessGuard.requireAuthenticatedUserForUpdate(userId);
         Certificate certificate = certificateRepository.findById(certificateId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.CERTIFICATE_NOT_FOUND));
 
@@ -70,7 +70,7 @@ public class CertificateService {
 
     @Transactional
     public void deleteCertificate(Long userId, Long certificateId) {
-        accessGuard.requireAuthenticatedUser(userId);
+        accessGuard.requireAuthenticatedUserForUpdate(userId);
         Certificate certificate = certificateRepository.findById(certificateId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.CERTIFICATE_NOT_FOUND));
 

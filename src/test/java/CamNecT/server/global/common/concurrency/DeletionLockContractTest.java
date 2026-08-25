@@ -2,7 +2,6 @@ package CamNecT.server.global.common.concurrency;
 
 import CamNecT.server.domain.activity.repository.external_activity.ExternalActivityRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
-import CamNecT.server.domain.profile.components.experience.repository.ExperienceRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
@@ -18,7 +17,6 @@ class DeletionLockContractTest {
     void deletionRaceBarriersUsePessimisticWriteLocks() throws NoSuchMethodException {
         assertWriteLock(CommentsRepository.class, "findAllByPostIdForUpdate", Long.class);
         assertWriteLock(ExternalActivityRepository.class, "findByIdForUpdate", Long.class);
-        assertWriteLock(ExperienceRepository.class, "findByIdForUpdate", Long.class);
         assertWriteLock(UserRepository.class, "findByIdForUpdate", Long.class);
     }
 

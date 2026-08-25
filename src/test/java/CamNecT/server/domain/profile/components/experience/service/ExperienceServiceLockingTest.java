@@ -32,33 +32,33 @@ class ExperienceServiceLockingTest {
     @InjectMocks ExperienceService service;
 
     @Test
-    void updateLocksUserBeforeExperienceWithResponsibilities() {
+    void updateLocksUserBeforeLoadingExperienceWithResponsibilities() {
         Users owner = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
         Experience experience = experience(owner);
         ExperienceRequest request = request(List.of("변경 업무"));
         when(accessGuard.requireAuthenticatedUserForUpdate(1L)).thenReturn(owner);
-        when(experienceRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(experience));
+        when(experienceRepository.findById(10L)).thenReturn(Optional.of(experience));
 
         service.updateExperience(1L, 10L, request);
 
         InOrder order = inOrder(accessGuard, experienceRepository);
         order.verify(accessGuard).requireAuthenticatedUserForUpdate(1L);
-        order.verify(experienceRepository).findByIdForUpdate(10L);
+        order.verify(experienceRepository).findById(10L);
         assertThat(experience.getResponsibilities()).containsExactly("변경 업무");
     }
 
     @Test
-    void deleteLocksUserBeforeExperienceParentDeletion() {
+    void deleteLocksUserBeforeLoadingExperienceParent() {
         Users owner = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
         Experience experience = experience(owner);
         when(accessGuard.requireAuthenticatedUserForUpdate(1L)).thenReturn(owner);
-        when(experienceRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(experience));
+        when(experienceRepository.findById(10L)).thenReturn(Optional.of(experience));
 
         service.deleteExperience(1L, 10L);
 
         InOrder order = inOrder(accessGuard, experienceRepository);
         order.verify(accessGuard).requireAuthenticatedUserForUpdate(1L);
-        order.verify(experienceRepository).findByIdForUpdate(10L);
+        order.verify(experienceRepository).findById(10L);
         order.verify(experienceRepository).delete(experience);
     }
 

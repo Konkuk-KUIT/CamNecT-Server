@@ -27,7 +27,7 @@ public class EducationService {
 
     @Transactional
     public void addEducation(Long userId, EducationRequest request) {
-        Users user = accessGuard.requireAuthenticatedUser(userId);
+        Users user = accessGuard.requireAuthenticatedUserForUpdate(userId);
 
         Institutions institution = institutionRepository.findById(request.institutionId())
                 .orElseThrow(() -> new CustomException(UserErrorCode.INSTITUTION_NOT_FOUND));
@@ -55,7 +55,7 @@ public class EducationService {
 
     @Transactional
     public void updateEducation(Long userId, Long educationId, EducationRequest request) {
-        accessGuard.requireAuthenticatedUser(userId);
+        accessGuard.requireAuthenticatedUserForUpdate(userId);
         Education education = educationRepository.findById(educationId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.EDUCATION_NOT_FOUND));
 
@@ -79,7 +79,7 @@ public class EducationService {
 
     @Transactional
     public void deleteEducation(Long userId, Long educationId) {
-        accessGuard.requireAuthenticatedUser(userId);
+        accessGuard.requireAuthenticatedUserForUpdate(userId);
         Education education = educationRepository.findById(educationId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.EDUCATION_NOT_FOUND));
 
