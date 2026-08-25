@@ -32,6 +32,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.enableSimpleBroker("/sub", "/queue", "/room")
                 .setHeartbeatValue(new long[]{10_000, 10_000})
                 .setTaskScheduler(messageBrokerTaskScheduler);    //해당 주소를 구독하고 잇는 클라이언트들에게 메세지 전달
+        registry.setPreservePublishOrder(true);
         registry.setApplicationDestinationPrefixes("/pub", "/send"); //클라이언트에서 보낸 메세지를 받을 prefix
         registry.setUserDestinationPrefix("/user");
     }
@@ -39,6 +40,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.setErrorHandler(chatStompErrorHandler);
+        registry.setPreserveReceiveOrder(true);
 
         registry.addEndpoint("/ws-stomp")
                 .setAllowedOriginPatterns(

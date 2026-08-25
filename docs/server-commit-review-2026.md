@@ -347,3 +347,32 @@
 
 - `TokenSessionServiceTest`: 6개 통과, 실패·오류·건너뜀 0개
 - 전체 폐기 메서드가 회전·저장과 동일한 동기화 계약을 유지하는지 직접 검증한다.
+
+### `chat-corrections-preserve-message-order`
+
+관련 변경 흐름:
+
+- `46a179a`: 구조화된 STOMP 오류 처리와 함께 동일 세션의 수신 순서 보존 설정 도입
+- `955ce11` (#281 연관): 브로커 heartbeat와 연결 오류 처리를 보완하는 과정에서 수신 순서 보존 설정 제거
+- `730b686`, `8b88b99` (#281 연관): 메시지 멱등 처리와 커밋 후 실시간 전송 흐름 도입
+
+발견한 문제:
+
+- 동일 STOMP 세션이 연속으로 보낸 프레임도 inbound executor의 서로 다른 작업으로 처리될 수 있었다. 채팅방 잠금은 먼저 획득한 작업부터 직렬화할 뿐 원래 수신 순서를 복원하지 않으므로, 뒤 메시지가 먼저 저장될 수 있었다.
+- 애플리케이션에서 단순 브로커로 연속 발행한 메시지 역시 publish 순서 보존 설정이 없어 같은 구독자에게 전달되는 순서를 보장하지 않았다.
+
+교정 내용:
+
+- STOMP endpoint에 `setPreserveReceiveOrder(true)`를 복원해 동일 세션의 inbound 프레임을 수신 순서대로 처리한다.
+- message broker에 `setPreservePublishOrder(true)`를 추가해 동일 클라이언트로 나가는 메시지 순서를 발행 순서와 일치시킨다.
+- 목적지, payload, heartbeat와 인증 interceptor 구성은 변경하지 않는다.
+
+계약 영향:
+
+- REST·STOMP 주소와 메시지 형식은 바뀌지 않는다.
+- 동일 세션·구독자에 대한 메시지 처리만 순차화되며 서로 다른 연결은 계속 병렬로 처리된다.
+
+검증:
+
+- `WebSocketOrderingConfigTest` 1개와 `ChatWebSocketContractIntegrationTest` 2개: 총 3개 통과, 실패·오류·건너뜀 0개
+- 구성 단위 테스트로 inbound·publish 양방향 순서 보존 옵션을 고정하고, 실제 STOMP 연결에서 빠르게 연속 전송한 두 메시지의 저장·broadcast 순서를 검증한다.
