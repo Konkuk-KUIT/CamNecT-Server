@@ -61,7 +61,7 @@ public class RecruitmentService {
         }
 
         //대외활동 검증
-        ExternalActivity activity = activityRepository.findById(request.activityId()).orElseThrow(
+        ExternalActivity activity = activityRepository.findByIdForUpdate(request.activityId()).orElseThrow(
                 ()-> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND)
         );
 
@@ -112,7 +112,7 @@ public class RecruitmentService {
     public void updateRecruitment(Long userId, Long recruitmentId, RecruitmentRequest request) {
         requireAuthenticatedUser(userId);
         // 1. 모집글 조회
-        TeamRecruitment recruitment = recruitmentRepository.findById(recruitmentId)
+        TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitmentId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
 
         // 2. 작성자 본인 확인
@@ -260,30 +260,30 @@ public class RecruitmentService {
         // 4. 상태를 CLOSED로 변경 (더티 체킹으로 자동 업데이트)
         recruitment.close();
 
-        // 5. 대기중인 TEAM_RECRUIT 요청들 전부 거절 처리 + 알림
-        List<ChatRequest> targets = chatRequestRepository.findAllNonAcceptedTeamRecruitFetchRequester(
+        // 5. 응답과 경합하지 않도록 대기 요청을 잠근 뒤 거절한다.
+        List<ChatRequest> targets = chatRequestRepository.findAllByRecruitmentIdAndTypeAndStatusForUpdate(
                 ChatRequest.RequestType.TEAM_RECRUIT,
                 recruitId,
-                ChatRequest.RequestStatus.ACCEPTED
+                ChatRequest.RequestStatus.WAITING
         );
 
-        for (ChatRequest r : targets) if (r.getStatus() == ChatRequest.RequestStatus.WAITING) r.reject();
+        targets.forEach(ChatRequest::reject);
     }
 
     /**
      * 팀원 모집글 삭제
      * - 작성자 또는 관리자만 삭제 가능
      * - 모집글은 삭제됨
-     * - 모집글과 연관된 북마크(토글)도 함께 삭제됨
-     * - ChatRequest와 ChatRoom은 유지됨 (recruitmentId는 null이 됨)
-     * - ChatRoom 조회 시 recruitment 정보는 null 반환
+     * - 모집글과 연관된 지원서와 북마크는 함께 삭제됨
+     * - WAITING ChatRequest는 거절됨
+     * - ACCEPTED/REJECTED ChatRequest와 ChatRoom의 recruitmentId는 이력으로 유지됨
      */
     @Transactional
     public void deleteRecruitment(Long userId, Long recruitId) {
         requireAuthenticatedUser(userId);
         
         // 1. 모집글 조회
-        TeamRecruitment recruitment = recruitmentRepository.findById(recruitId)
+        TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
 
         // 2. 작성자 본인 또는 관리자 확인
@@ -294,11 +294,19 @@ public class RecruitmentService {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
 
-        // 3. 모집글 연관 지원서와 북마크 삭제
+        // 3. 수락 처리와 경합하지 않도록 대기 요청을 잠근 뒤 거절
+        List<ChatRequest> waitingRequests = chatRequestRepository.findAllByRecruitmentIdAndTypeAndStatusForUpdate(
+                ChatRequest.RequestType.TEAM_RECRUIT,
+                recruitId,
+                ChatRequest.RequestStatus.WAITING
+        );
+        waitingRequests.forEach(ChatRequest::reject);
+
+        // 4. 모집글 연관 지원서와 북마크 삭제
         teamApplicationRepository.deleteByRecruitId(recruitId);
         bookmarkRepository.deleteByRecruitId(recruitId);
 
-        // 4. 모집글 삭제 (ChatRequest/ChatRoom은 유지)
+        // 5. 모집글 삭제 (처리 완료된 ChatRequest/ChatRoom과 연결 ID는 유지)
         recruitmentRepository.delete(recruitment);
     }
 

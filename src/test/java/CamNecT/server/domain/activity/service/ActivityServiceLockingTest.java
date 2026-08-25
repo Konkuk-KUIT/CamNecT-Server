@@ -13,6 +13,8 @@ import CamNecT.server.domain.community.service.AuthorAssembler;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
 import CamNecT.server.global.storage.repository.UploadTicketRepository;
 import CamNecT.server.global.storage.service.GlobalPresignMethods;
 import CamNecT.server.global.storage.service.PresignEngine;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -68,16 +71,38 @@ class ActivityServiceLockingTest {
 
         InOrder order = inOrder(
                 activityRepository,
+                teamRecruitmentRepository,
                 activityAttachmentRepository,
                 activityTagRepository,
                 activityBookmarkRepository
         );
         order.verify(activityRepository).findByIdForUpdate(10L);
+        order.verify(teamRecruitmentRepository).existsByActivityId(10L);
         order.verify(activityAttachmentRepository).findAllByActivity_ActivityId(10L);
         order.verify(activityTagRepository).deleteAllByActivityId(10L);
         order.verify(activityBookmarkRepository).deleteAllByActivityId(10L);
         order.verify(activityAttachmentRepository).deleteAllByActivityId(10L);
         order.verify(activityRepository).delete(activity);
+    }
+
+    @Test
+    void activityWithRecruitmentCannotBePhysicallyDeleted() {
+        Users owner = Users.builder().userId(1L).build();
+        ExternalActivity activity = ExternalActivity.builder()
+                .activityId(10L)
+                .user(owner)
+                .category(ActivityCategory.EXTERNAL)
+                .title("모집글 보유 활동")
+                .build();
+        when(activityRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(activity));
+        when(userRepository.existsByUserIdAndRole(1L, UserRole.ADMIN)).thenReturn(false);
+        when(teamRecruitmentRepository.existsByActivityId(10L)).thenReturn(true);
+
+        CustomException exception = assertThrows(CustomException.class, () -> service.delete(10L, 1L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(ActivityErrorCode.ACTIVITY_HAS_RECRUITMENTS);
+        verifyNoInteractions(activityTagRepository, activityAttachmentRepository, activityBookmarkRepository);
+        verify(activityRepository, never()).delete(any());
     }
 
     @Test

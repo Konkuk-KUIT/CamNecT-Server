@@ -467,6 +467,10 @@ public class ActivityService {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
 
+        if (teamRecruitmentRepository.existsByActivityId(activityId)) {
+            throw new CustomException(ActivityErrorCode.ACTIVITY_HAS_RECRUITMENTS);
+        }
+
         Set<String> deleteAfterCommit = new HashSet<>();
 
         if (StringUtils.hasText(activity.getThumbnailKey()) && !DEFAULT_THUMB.equals(activity.getThumbnailKey())) {

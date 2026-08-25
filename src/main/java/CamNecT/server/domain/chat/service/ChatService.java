@@ -65,6 +65,9 @@ import java.util.stream.Collectors;
 @Transactional
 public class ChatService {
 
+    private static final String COFFEE_CHAT_REQUEST_TITLE = "커피챗 요청";
+    private static final String DELETED_RECRUITMENT_TITLE = "삭제된 모집 공고입니다.";
+
     @Value("${app.point.reward.coffee-chat-accepted:500}")
     private int rewardCoffeeChatAccepted;
     private static final long LEGACY_TAG_ID = 111L;
@@ -207,12 +210,7 @@ public class ChatService {
             throw new CustomException(CoffeeChatErrorCode.REQUEST_ACCESS_DENIED);
         }
 
-        String title = "커피챗 요청";
-        if (request.getType() == ChatRequest.RequestType.TEAM_RECRUIT && request.getRecruitmentId() != null) {
-            title = recruitmentRepository.findById(request.getRecruitmentId())
-                    .map(TeamRecruitment::getTitle)
-                    .orElse("삭제된 모집 공고입니다.");
-        }
+        String title = resolveRequestTitle(request);
 
         boolean isReceiver = request.getReceiver().getUserId().equals(userId);
         Users me = isReceiver ? request.getReceiver() : request.getRequester();
@@ -288,7 +286,7 @@ public class ChatService {
                         profileImgUrl = publicUrlIssuer.issuePublicUrl(g.profileImageKey());
                     }
 
-                    String title = recruitmentTitleMap.getOrDefault(request.getRecruitmentId(), "커피챗 요청");
+                    String title = resolveRequestTitle(request, recruitmentTitleMap);
 
                     return ChatRequestListDetailDto.from(
                             opponent,
@@ -375,15 +373,7 @@ public class ChatService {
 
         List<ChatMessageResponseDto> chatHistory = this.getChatHistory(roomId, userId);
 
-        String title = "커피챗 요청";
-        if (room.getRequest().getType() == ChatRequest.RequestType.TEAM_RECRUIT) {
-            Long recruitmentId = room.getRequest().getRecruitmentId();
-            if (recruitmentId != null) {
-                title = recruitmentRepository.findById(recruitmentId)
-                        .map(TeamRecruitment::getTitle)
-                        .orElse("삭제된 모집 공고입니다.");
-            }
-        }
+        String title = resolveRequestTitle(room.getRequest());
 
         return ChatRoomWithDetailDto.from(room, me, opponent, opProfile, majorName, tagNames, chatHistory, title, profileImgUrl);
     }
@@ -815,6 +805,25 @@ public class ChatService {
         long second = Math.max(firstUserId, secondUserId);
         userRepository.lockUserRow(first);
         if (first != second) userRepository.lockUserRow(second);
+    }
+
+    private String resolveRequestTitle(ChatRequest request) {
+        if (request.getType() != ChatRequest.RequestType.TEAM_RECRUIT) {
+            return COFFEE_CHAT_REQUEST_TITLE;
+        }
+        if (request.getRecruitmentId() == null) {
+            return DELETED_RECRUITMENT_TITLE;
+        }
+        return recruitmentRepository.findById(request.getRecruitmentId())
+                .map(TeamRecruitment::getTitle)
+                .orElse(DELETED_RECRUITMENT_TITLE);
+    }
+
+    private String resolveRequestTitle(ChatRequest request, Map<Long, String> recruitmentTitleMap) {
+        if (request.getType() != ChatRequest.RequestType.TEAM_RECRUIT) {
+            return COFFEE_CHAT_REQUEST_TITLE;
+        }
+        return recruitmentTitleMap.getOrDefault(request.getRecruitmentId(), DELETED_RECRUITMENT_TITLE);
     }
 
     private String normalizeClientMessageId(String rawClientMessageId) {
