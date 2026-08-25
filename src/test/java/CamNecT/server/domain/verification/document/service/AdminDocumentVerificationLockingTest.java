@@ -66,4 +66,25 @@ class AdminDocumentVerificationLockingTest {
         assertThat(withdrawn.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
         verify(userRepository).findByIdForUpdate(1L);
     }
+
+    @Test
+    void rejectionCanCloseAnOldPendingSubmissionWithoutReactivatingUser() {
+        DocumentVerificationSubmission submission = DocumentVerificationSubmission.builder()
+                .id(10L)
+                .userId(1L)
+                .status(VerificationStatus.PENDING)
+                .build();
+        Users withdrawn = Users.builder().userId(1L).status(UserStatus.WITHDRAWN).build();
+        when(submissionRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(submission));
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(withdrawn));
+        AdminReviewDocumentVerificationRequest request =
+                new AdminReviewDocumentVerificationRequest(
+                        AdminReviewDocumentVerificationRequest.Decision.REJECT,
+                        "정리", null, null, null, null);
+
+        service.review(99L, 10L, request);
+
+        assertThat(submission.getStatus()).isEqualTo(VerificationStatus.REJECTED);
+        assertThat(withdrawn.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+    }
 }
