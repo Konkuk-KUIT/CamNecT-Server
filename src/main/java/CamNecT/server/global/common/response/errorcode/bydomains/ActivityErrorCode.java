@@ -16,6 +16,7 @@ public enum ActivityErrorCode implements BaseErrorCode {
     RECRUITMENT_CLOSED(HttpStatus.BAD_REQUEST, 46003, "신청이 마감되었습니다."),
     INVALID_ACTIVITY_CATEGORY(HttpStatus.BAD_REQUEST, 46004, "해당 대외활동에서 지원하지 않는 기능입니다."),
     ALREADY_CLOSED(HttpStatus.BAD_REQUEST, 46005, "이미 모집이 마감된 활동입니다."),
+    ACTIVITY_HAS_RECRUITMENTS(HttpStatus.CONFLICT, 46006, "팀원 모집 글이 존재하는 활동은 삭제할 수 없습니다."),
 
     //461xx - 권한
     NOT_AUTHOR(HttpStatus.UNAUTHORIZED, 46101, "게시글 작성자가 아닙니다."),

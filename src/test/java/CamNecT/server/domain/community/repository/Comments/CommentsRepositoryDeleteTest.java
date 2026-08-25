@@ -46,6 +46,7 @@ class CommentsRepositoryDeleteTest {
         entityManager.flush();
         entityManager.clear();
 
+        assertThat(commentsRepository.findAllByPostIdForUpdate(post.getId())).hasSize(4);
         commentsRepository.deleteRepliesByPostId(post.getId());
         commentsRepository.deleteRootsByPostId(post.getId());
         entityManager.flush();

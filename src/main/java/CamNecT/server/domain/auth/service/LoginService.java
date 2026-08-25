@@ -133,7 +133,7 @@ public class LoginService {
 
     @Transactional
     public void withdraw(Long userId, WithdrawRequest req) {
-        Users user = userRepository.findByUserId(userId)
+        Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
 
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {

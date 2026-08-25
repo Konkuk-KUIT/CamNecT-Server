@@ -18,5 +18,7 @@ public interface TeamRecruitmentRepository extends JpaRepository<TeamRecruitment
     @Query("select r from TeamRecruitment r where r.recruitId = :recruitId")
     Optional<TeamRecruitment> findByIdForUpdate(@Param("recruitId") Long recruitId);
 
+    boolean existsByActivityId(Long activityId);
+
     List<TeamRecruitment> findAllByActivityId(Long activityId);
 }
