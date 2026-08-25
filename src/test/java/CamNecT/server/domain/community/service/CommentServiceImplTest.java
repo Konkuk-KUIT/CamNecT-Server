@@ -180,6 +180,34 @@ class CommentServiceImplTest {
     }
 
     @Test
+    void moderationDeletionRemovesAcceptedAnswer() {
+        Posts post = publishedPost();
+        Comments acceptedAnswer = comment(post, 20L, 2L, null, CommentStatus.PUBLISHED);
+        PostStats stats = PostStats.init(post);
+        when(commentsRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(acceptedAnswer));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+        when(postStatsRepository.findByPostIdForUpdate(10L)).thenReturn(Optional.of(stats));
+
+        assertDoesNotThrow(() -> service.deleteForModeration(99L, 20L));
+
+        verify(acceptedCommentsRepository).deleteByComment_Id(20L);
+        assertThat(acceptedAnswer.getStatus()).isEqualTo(CommentStatus.DELETED);
+    }
+
+    @Test
+    void moderationDeletionTreatsHiddenCommentAsComplete() {
+        Comments hidden = publishedComment(2L, null);
+        hidden.hide();
+        when(commentsRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(hidden));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+
+        assertDoesNotThrow(() -> service.deleteForModeration(99L, 20L));
+
+        verify(acceptedCommentsRepository, never()).deleteByComment_Id(anyLong());
+        verifyNoInteractions(postStatsRepository);
+    }
+
+    @Test
     void commentListReturnsNextRootCursorAndIncludesOnlyRequestedRootPage() {
         Posts post = publishedPost();
         LocalDateTime firstCreatedAt = LocalDateTime.of(2026, 8, 24, 10, 0);

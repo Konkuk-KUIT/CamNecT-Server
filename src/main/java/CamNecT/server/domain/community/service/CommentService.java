@@ -15,6 +15,8 @@ public interface CommentService {
 
     void delete(Long userId, Long commentId);
 
+    void deleteForModeration(Long adminId, Long commentId);
+
     ToggleCommentLikeResponse toggleLike(Long userId, Long commentId);
 
     CommentListResponse list(Long userId, Long postId, Long cursorId, int size);

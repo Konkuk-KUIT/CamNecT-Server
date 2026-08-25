@@ -34,6 +34,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.hibernate.exception.ConstraintViolationException;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -47,6 +48,8 @@ import java.util.Map;
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class ReportService {
+
+    private static final String DUPLICATE_REPORT_CONSTRAINT = "uk_report_reporter_case_slot";
 
     private final ReportRepository reportRepository;
     private final ReportEvidenceRepository evidenceRepository;
@@ -116,7 +119,10 @@ public class ReportService {
         try {
             savedReport = reportRepository.saveAndFlush(report);
         } catch (DataIntegrityViolationException e) {
-            throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
+            if (isDuplicateReportSubmission(e)) {
+                throw new CustomException(ReportErrorCode.REPORT_DUPLICATE, e);
+            }
+            throw e;
         }
 
         reportCase.addReport();
@@ -131,6 +137,18 @@ public class ReportService {
         }
         
         return savedReport.getReportId();
+    }
+
+    private boolean isDuplicateReportSubmission(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof ConstraintViolationException constraintViolation
+                    && DUPLICATE_REPORT_CONSTRAINT.equalsIgnoreCase(constraintViolation.getConstraintName())) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     /**
@@ -200,8 +218,8 @@ public class ReportService {
 
         try {
             switch (targetType) {
-                case COMMUNITY -> postService.delete(adminId, postId);
-                case COMMUNITY_COMMENT -> commentService.delete(adminId, postId);
+                case COMMUNITY -> postService.deleteForModeration(adminId, postId);
+                case COMMUNITY_COMMENT -> commentService.deleteForModeration(adminId, postId);
                 case ACTIVITY -> activityService.delete(postId, adminId);
                 case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitment(adminId, postId);
                 case USER -> log.info("Skipping account deletion in report processing. caseId={}", reportCase.getCaseId());

@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -249,6 +250,31 @@ class PostServiceImplTest {
         order.verify(commentsRepository).deleteRepliesByPostId(10L);
         order.verify(commentsRepository).deleteRootsByPostId(10L);
         verify(postsRepository).softDeleteById(eq(10L), any(LocalDateTime.class));
+    }
+
+    @Test
+    void moderationDeletionRemovesAcceptedQuestion() {
+        Posts question = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
+        when(postsRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(question));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+
+        assertDoesNotThrow(() -> service.deleteForModeration(99L, 10L));
+
+        verify(acceptedCommentsRepository, never()).existsByPost_Id(10L);
+        verify(acceptedCommentsRepository).deleteByPost_Id(10L);
+        verify(postsRepository).softDeleteById(eq(10L), any(LocalDateTime.class));
+    }
+
+    @Test
+    void moderationDeletionTreatsHiddenPostAsComplete() {
+        Posts hidden = post(1L, BoardCode.QUESTION, false, PostStatus.HIDDEN);
+        when(postsRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(hidden));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+
+        assertDoesNotThrow(() -> service.deleteForModeration(99L, 10L));
+
+        verify(commentsRepository, never()).findAllByPostIdForUpdate(anyLong());
+        verify(postsRepository, never()).softDeleteById(anyLong(), any());
     }
 
     @Test

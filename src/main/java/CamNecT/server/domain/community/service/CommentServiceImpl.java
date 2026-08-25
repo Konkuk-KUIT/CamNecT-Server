@@ -163,8 +163,30 @@ public class CommentServiceImpl implements CommentService {
             throw new CustomException(CommunityErrorCode.CANNOT_MODIFY_ACCEPTED_COMMENT);
         }
 
-        boolean isRoot = (comment.getParent() == null);
+        deleteComment(comment);
+    }
 
+    @Transactional
+    @Override
+    public void deleteForModeration(Long adminId, Long commentId) {
+        if (adminId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+
+        Comments comment = commentsRepository.findByIdForUpdate(commentId)
+                .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
+
+        if (!userRepository.existsByUserIdAndRole(adminId, UserRole.ADMIN)) {
+            throw new CustomException(CommunityErrorCode.COMMENT_FORBIDDEN);
+        }
+        if (!comment.getPost().getStatus().isPublished() || !comment.getStatus().isPublished()) {
+            return;
+        }
+
+        acceptedCommentsRepository.deleteByComment_Id(commentId);
+        deleteComment(comment);
+    }
+
+    private void deleteComment(Comments comment) {
+        boolean isRoot = comment.getParent() == null;
         comment.deleteSoft();
 
         PostStats stats = postStatsRepository.findByPostIdForUpdate(comment.getPost().getId())

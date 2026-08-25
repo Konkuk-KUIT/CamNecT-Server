@@ -24,8 +24,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -122,6 +125,51 @@ class ReportServiceTest {
     }
 
     @Test
+    void concurrentDuplicateConstraintIsMappedToDuplicateReport() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        ReportCreateRequest request = request(2L, 100L, TargetType.COMMUNITY);
+        ConstraintViolationException constraintFailure = new ConstraintViolationException(
+                "duplicate", new SQLException(), "uk_report_reporter_case_slot"
+        );
+
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(reportCase));
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate", constraintFailure));
+
+        CustomException exception = assertThrows(CustomException.class, () -> service.createReport(1L, request));
+
+        assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_DUPLICATE);
+    }
+
+    @Test
+    void unrelatedIntegrityFailureIsNotMisclassifiedAsDuplicateReport() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        ReportCreateRequest request = request(2L, 100L, TargetType.COMMUNITY);
+        DataIntegrityViolationException failure = new DataIntegrityViolationException(
+                "title too long",
+                new ConstraintViolationException("invalid", new SQLException(), "some_other_constraint")
+        );
+
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(reportCase));
+        when(reportRepository.saveAndFlush(any(Report.class))).thenThrow(failure);
+
+        DataIntegrityViolationException exception = assertThrows(
+                DataIntegrityViolationException.class,
+                () -> service.createReport(1L, request)
+        );
+
+        assertThat(exception).isSameAs(failure);
+    }
+
+    @Test
     void resolvedCaseRequiresAdministratorCategory() {
         Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
         when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
@@ -188,6 +236,29 @@ class ReportServiceTest {
         assertThat(first.getStatus()).isEqualTo(ReportStatus.RESOLVED);
         assertThat(second.getStatus()).isEqualTo(ReportStatus.RESOLVED);
         verify(userReportPenaltyService, times(1)).applyPenalty(reportCase);
+    }
+
+    @Test
+    void resolvingCommunityCaseUsesModerationDeletion() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        Report report = report(101L, reportCase, 1L);
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L)).thenReturn(List.of(report));
+        when(userReportPenaltyService.applyPenalty(reportCase)).thenReturn(PenaltyType.WARNING);
+
+        service.processReport(
+                9L,
+                10L,
+                new ReportProcessRequest(ReportStatus.RESOLVED, ReportCategory.OTHER, "confirmed")
+        );
+
+        verify(postService).deleteForModeration(9L, 100L);
+        verify(postService, never()).delete(anyLong(), anyLong());
+        assertThat(reportCase.getStatus()).isEqualTo(ReportStatus.RESOLVED);
     }
 
     @Test

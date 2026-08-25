@@ -187,6 +187,28 @@ public class PostServiceImpl implements PostService {
             throw new CustomException(CommunityErrorCode.CANNOT_DELETE_ACCEPTED_QUESTION);
         }
 
+        deletePost(postId);
+    }
+
+    @Transactional
+    @Override
+    public void deleteForModeration(Long adminId, Long postId) {
+        if (adminId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+
+        Posts post = postsRepository.findByIdForUpdate(postId)
+                .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
+
+        if (!userRepository.existsByUserIdAndRole(adminId, UserRole.ADMIN)) {
+            throw new CustomException(CommunityErrorCode.POST_FORBIDDEN);
+        }
+        if (!post.getStatus().isPublished()) {
+            return;
+        }
+
+        deletePost(postId);
+    }
+
+    private void deletePost(Long postId) {
         // 댓글 좋아요가 의존관계 정리 이후 다시 추가되지 않도록 댓글 행을 먼저 잠근다.
         commentsRepository.findAllByPostIdForUpdate(postId);
 
