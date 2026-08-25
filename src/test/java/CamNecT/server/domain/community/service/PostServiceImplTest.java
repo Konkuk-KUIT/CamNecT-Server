@@ -18,6 +18,7 @@ import CamNecT.server.domain.community.repository.Comments.CommentLikesRepositor
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.*;
 import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
@@ -229,6 +231,23 @@ class PostServiceImplTest {
 
         assertThat(exception.getErrorCode()).isEqualTo(CommunityErrorCode.POST_NOT_PUBLISHED);
         verify(postStatsRepository, never()).findByPostIdForUpdate(11L);
+    }
+
+    @Test
+    void postDeletionRemovesCommentDependenciesBeforeRoots() {
+        Posts post = post(1L, BoardCode.INFO, false, PostStatus.PUBLISHED);
+        when(postsRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(post));
+        when(userRepository.existsByUserIdAndRole(1L, UserRole.ADMIN))
+                .thenReturn(false);
+
+        service.delete(1L, 10L);
+
+        InOrder order = inOrder(commentLikesRepository, acceptedCommentsRepository, commentsRepository);
+        order.verify(commentLikesRepository).deleteByPostId(10L);
+        order.verify(acceptedCommentsRepository).deleteByPost_Id(10L);
+        order.verify(commentsRepository).deleteRepliesByPostId(10L);
+        order.verify(commentsRepository).deleteRootsByPostId(10L);
+        verify(postsRepository).softDeleteById(eq(10L), any(LocalDateTime.class));
     }
 
     @Test
