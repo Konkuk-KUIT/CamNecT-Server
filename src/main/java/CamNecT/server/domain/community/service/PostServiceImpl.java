@@ -186,9 +186,11 @@ public class PostServiceImpl implements PostService {
                 && acceptedCommentsRepository.existsByPost_Id(postId)) {
             throw new CustomException(CommunityErrorCode.CANNOT_DELETE_ACCEPTED_QUESTION);
         }
-        // 1) 댓글 좋아요 -> 댓글 하드 삭제 (FK 안전)
+        // 1) 댓글 의존 관계 -> 대댓글 -> 루트 댓글 순서로 하드 삭제
         commentLikesRepository.deleteByPostId(postId);
-        commentsRepository.deleteByPostId(postId);
+        acceptedCommentsRepository.deleteByPost_Id(postId);
+        commentsRepository.deleteRepliesByPostId(postId);
+        commentsRepository.deleteRootsByPostId(postId);
 
         // 2) 게시글 좋아요/북마크/구매권한 정리
         postLikesRepository.deleteByPostId(postId);
@@ -197,9 +199,8 @@ public class PostServiceImpl implements PostService {
         postStatsRepository.deleteByPostId(postId);
 
 
-        // 3) 태그/채택 정리
+        // 3) 태그 정리
         postTagsRepository.deleteByPost_Id(postId);
-        acceptedCommentsRepository.deleteByPost_Id(postId);
 
         // 4) 첨부 정리 (S3 after-commit 삭제 포함)
         postAttachmentsService.purgeAllByPostId(postId);
