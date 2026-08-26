@@ -27,7 +27,7 @@ public class AccountAccessGuard {
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
 
         if (user.getStatus() == UserStatus.SUSPENDED
-                || userReportPenaltyService.hasActiveRestriction(userId)) {
+                || userReportPenaltyService.hasActiveRestriction(userId, user.getStatus())) {
             revokeSafely(userId);
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }

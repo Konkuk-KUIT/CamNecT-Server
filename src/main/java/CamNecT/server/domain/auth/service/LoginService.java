@@ -72,8 +72,8 @@ public class LoginService {
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
             throw new CustomException(AuthErrorCode.INVALID_CREDENTIALS);
         }
-        if (userReportPenaltyService.hasActiveRestriction(user.getUserId())
-                || user.getStatus() == UserStatus.SUSPENDED) {
+        if (user.getStatus() == UserStatus.SUSPENDED
+                || userReportPenaltyService.hasActiveRestriction(user.getUserId(), user.getStatus())) {
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
         if (user.getStatus() == UserStatus.WITHDRAWN) {

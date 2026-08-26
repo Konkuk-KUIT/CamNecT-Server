@@ -52,7 +52,7 @@ class AccountAccessGuardTest {
     void rejectsActiveAccountWhileReportRestrictionIsActive() {
         Users user = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userReportPenaltyService.hasActiveRestriction(1L)).thenReturn(true);
+        when(userReportPenaltyService.hasActiveRestriction(1L, UserStatus.ACTIVE)).thenReturn(true);
 
         CustomException exception = assertThrows(CustomException.class,
                 () -> guard.requireAccessible(1L));

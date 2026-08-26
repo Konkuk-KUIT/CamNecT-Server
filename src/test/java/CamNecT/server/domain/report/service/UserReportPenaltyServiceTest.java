@@ -80,37 +80,46 @@ class UserReportPenaltyServiceTest {
 
     @Test
     void expiredReportRestrictionDoesNotClearExistingManualSuspension() {
-        Users user = user(2L, UserStatus.SUSPENDED);
-        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
-
-        boolean reportRestricted = service.hasActiveRestriction(2L);
+        boolean reportRestricted = service.hasActiveRestriction(2L, UserStatus.SUSPENDED);
 
         assertThat(reportRestricted).isFalse();
-        assertThat(user.getStatus()).isEqualTo(UserStatus.SUSPENDED);
+        verify(penaltyRepository).existsActiveRestriction(
+                eq(2L),
+                eq(PenaltyType.PERMANENT_BAN),
+                eq(PenaltyType.SUSPENDED_7_DAYS),
+                any(LocalDateTime.class)
+        );
     }
 
     @Test
     void activeTemporaryRestrictionIsEnforcedIndependentlyFromUserStatus() {
-        Users user = user(2L, UserStatus.ACTIVE);
-        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
-        when(penaltyRepository.existsByUser_UserIdAndPenaltyTypeAndSuspensionEndDateAfter(
+        when(penaltyRepository.existsActiveRestriction(
                 eq(2L),
+                eq(PenaltyType.PERMANENT_BAN),
                 eq(PenaltyType.SUSPENDED_7_DAYS),
                 any(LocalDateTime.class)
         )).thenReturn(true);
 
-        assertThat(service.hasActiveRestriction(2L)).isTrue();
-        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(service.hasActiveRestriction(2L, UserStatus.ACTIVE)).isTrue();
     }
 
     @Test
     void permanentRestrictionIsAlwaysActive() {
-        Users user = user(2L, UserStatus.ACTIVE);
-        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
-        when(penaltyRepository.existsByUser_UserIdAndPenaltyType(2L, PenaltyType.PERMANENT_BAN))
-                .thenReturn(true);
+        when(penaltyRepository.existsActiveRestriction(
+                eq(2L),
+                eq(PenaltyType.PERMANENT_BAN),
+                eq(PenaltyType.SUSPENDED_7_DAYS),
+                any(LocalDateTime.class)
+        )).thenReturn(true);
 
-        assertThat(service.hasActiveRestriction(2L)).isTrue();
+        assertThat(service.hasActiveRestriction(2L, UserStatus.ACTIVE)).isTrue();
+    }
+
+    @Test
+    void withdrawnAccountSkipsPenaltyLookup() {
+        assertThat(service.hasActiveRestriction(2L, UserStatus.WITHDRAWN)).isFalse();
+
+        verifyNoInteractions(penaltyRepository);
     }
 
     private static Users user(Long userId, UserStatus status) {

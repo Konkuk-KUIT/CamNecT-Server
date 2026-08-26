@@ -36,7 +36,7 @@ public class AuthTokenService {
         Users user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
         if (user.getStatus() == UserStatus.SUSPENDED
-                || userReportPenaltyService.hasActiveRestriction(userId)) {
+                || userReportPenaltyService.hasActiveRestriction(userId, user.getStatus())) {
             tokenSessionService.revokeAll(userId);
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }

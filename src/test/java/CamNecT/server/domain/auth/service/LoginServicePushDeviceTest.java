@@ -22,6 +22,8 @@ import CamNecT.server.domain.verification.document.repository.DocumentVerificati
 import CamNecT.server.global.jwt.service.TokenSessionService;
 import CamNecT.server.global.jwt.util.JwtFacade;
 import CamNecT.server.global.jwt.util.JwtUtil;
+import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.notification.service.PushDeviceService;
 import CamNecT.server.global.storage.service.GlobalPresignMethods;
 import org.junit.jupiter.api.Test;
@@ -40,9 +42,11 @@ import java.util.Set;
 
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @ExtendWith(MockitoExtension.class)
 class LoginServicePushDeviceTest {
@@ -141,6 +145,28 @@ class LoginServicePushDeviceTest {
         order.verify(passwordEncoder).matches("password", "encoded");
         order.verify(tokenSessionService).create(1L, "access", "refresh");
         assertThat(response.nextStep()).isEqualTo(LoginNextStep.ADMIN_DASHBOARD);
+    }
+
+    @Test
+    void loginSkipsPenaltyQueryForAlreadySuspendedUser() {
+        Users suspended = Users.builder()
+                .userId(1L)
+                .username("suspended")
+                .passwordHash("encoded")
+                .status(UserStatus.SUSPENDED)
+                .role(UserRole.USER)
+                .build();
+        when(userRepository.findUserIdByUsername("suspended")).thenReturn(Optional.of(1L));
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(suspended));
+        when(passwordEncoder.matches("password", "encoded")).thenReturn(true);
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> loginService.login(new LoginRequest("suspended", "password"))
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        verifyNoInteractions(userReportPenaltyService, jwtFacade, tokenSessionService);
     }
 
     @Test

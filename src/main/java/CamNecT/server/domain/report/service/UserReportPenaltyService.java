@@ -61,28 +61,17 @@ public class UserReportPenaltyService {
     }
 
     @Transactional(readOnly = true)
-    public boolean hasActiveRestriction(Long userId) {
-        UserStatus status = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND))
-                .getStatus();
-
+    public boolean hasActiveRestriction(Long userId, UserStatus status) {
         if (status == UserStatus.WITHDRAWN) {
             return false;
         }
 
-        LocalDateTime now = LocalDateTime.now(clock);
-        boolean permanentlyBanned = penaltyRepository.existsByUser_UserIdAndPenaltyType(
+        return penaltyRepository.existsActiveRestriction(
                 userId,
-                PenaltyType.PERMANENT_BAN
+                PenaltyType.PERMANENT_BAN,
+                PenaltyType.SUSPENDED_7_DAYS,
+                LocalDateTime.now(clock)
         );
-        boolean temporarilySuspended = penaltyRepository
-                .existsByUser_UserIdAndPenaltyTypeAndSuspensionEndDateAfter(
-                        userId,
-                        PenaltyType.SUSPENDED_7_DAYS,
-                        now
-                );
-
-        return permanentlyBanned || temporarilySuspended;
     }
 
     public long countPenalties(Long userId) {
