@@ -15,6 +15,16 @@ import java.util.Optional;
 
 public interface CommentsRepository extends JpaRepository<Comments, Long> {
 
+    @Query("select c.post.id from Comments c where c.id = :commentId")
+    Optional<Long> findPostIdByCommentId(@Param("commentId") Long commentId);
+
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_READ)
+    @Query("select c from Comments c where c.id = :commentId and c.status = :status")
+    Optional<Comments> findByIdAndStatusForRead(
+            @Param("commentId") Long commentId,
+            @Param("status") CommentStatus status
+    );
+
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Comments c where c.id = :commentId")
     Optional<Comments> findByIdForUpdate(@Param("commentId") Long commentId);

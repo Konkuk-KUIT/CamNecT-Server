@@ -21,6 +21,13 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     @Query("select p from Posts p where p.id = :postId")
     Optional<Posts> findByIdForRead(@Param("postId") Long postId);
 
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_READ)
+    @Query("select p from Posts p where p.id = :postId and p.status = :status")
+    Optional<Posts> findByIdAndStatusForRead(
+            @Param("postId") Long postId,
+            @Param("status") PostStatus status
+    );
+
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Posts p where p.id = :postId")
     Optional<Posts> findByIdForUpdate(@Param("postId") Long postId);

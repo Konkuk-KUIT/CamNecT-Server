@@ -13,6 +13,10 @@ import java.util.Optional;
 @Repository
 public interface ExternalActivityRepository extends JpaRepository<ExternalActivity, Long>, ExternalActivityRepositoryCustom {
 
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select e from ExternalActivity e where e.activityId = :id")
+    Optional<ExternalActivity> findByIdForRead(@Param("id") Long id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from ExternalActivity e where e.activityId = :id")
     Optional<ExternalActivity> findByIdForUpdate(@Param("id") Long id);

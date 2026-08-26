@@ -46,6 +46,10 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             "OR (r.receiver.userId = :userId AND r.receiverExited = false))")
     Optional<ChatRoom> findByUserIdWithDetails(@Param("roomId") Long roomId, @Param("userId") Long userId);
 
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select r from ChatRoom r join fetch r.requester join fetch r.receiver where r.id = :roomId")
+    Optional<ChatRoom> findByIdForRead(@Param("roomId") Long roomId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM ChatRoom r " +
             "JOIN FETCH r.requester " +
@@ -68,6 +72,20 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             or (r.receiver.userId = :userId and r.receiverExited = false))
     """)
     boolean existsAccessibleByUserId(@Param("roomId") Long roomId, @Param("userId") Long userId);
+
+    @Query("""
+        select case
+            when r.requester.userId = :reporterId then r.receiver.userId
+            when r.receiver.userId = :reporterId then r.requester.userId
+            else null
+        end
+        from ChatRoom r
+        where r.id = :roomId
+    """)
+    Optional<Long> findReportTargetUserId(
+            @Param("roomId") Long roomId,
+            @Param("reporterId") Long reporterId
+    );
 
     @Query("""
         select distinct case

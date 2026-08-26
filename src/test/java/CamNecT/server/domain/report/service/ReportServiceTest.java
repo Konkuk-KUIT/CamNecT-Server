@@ -15,7 +15,9 @@ import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
 import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
 import CamNecT.server.global.storage.service.PresignEngine;
@@ -23,10 +25,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.SQLException;
 import java.time.Clock;
@@ -48,6 +53,7 @@ class ReportServiceTest {
     @Mock ReportCaseRepository reportCaseRepository;
     @Mock UserReportPenaltyRepository penaltyRepository;
     @Mock UserRepository userRepository;
+    @Mock AccountAccessGuard accountAccessGuard;
     @Mock PresignEngine presignEngine;
     @Mock ReportAttachmentService reportAttachmentService;
     @Mock PostService postService;
@@ -67,6 +73,7 @@ class ReportServiceTest {
                 reportCaseRepository,
                 penaltyRepository,
                 userRepository,
+                accountAccessGuard,
                 presignEngine,
                 reportAttachmentService,
                 postService,
@@ -77,6 +84,14 @@ class ReportServiceTest {
                 reportTargetResolver,
                 Clock.fixed(Instant.parse("2026-07-28T03:00:00Z"), ZoneId.of("Asia/Seoul"))
         );
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        lenient().when(userRepository.existsByUserIdAndRole(9L, UserRole.ADMIN)).thenReturn(true);
+        lenient().when(accountAccessGuard.requireAccessibleForUpdate(9L)).thenReturn(admin);
+        lenient().when(reportTargetResolver.resolveForCreateLocked(anyLong(), any()))
+                .thenAnswer(invocation -> reportTargetResolver.resolve(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1)
+                ));
     }
 
     @Test
@@ -97,6 +112,17 @@ class ReportServiceTest {
         );
 
         assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_DUPLICATE);
+        InOrder order = inOrder(
+                accountAccessGuard,
+                userRepository,
+                reportTargetResolver,
+                reportCaseRepository
+        );
+        order.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        order.verify(userRepository).lockUserRow(2L);
+        order.verify(reportTargetResolver).resolveForCreateLocked(1L, request);
+        order.verify(userRepository).findById(2L);
+        order.verify(reportCaseRepository).findByTargetKey("COMMUNITY:100");
         verify(reportRepository, never()).saveAndFlush(any());
     }
 
@@ -121,7 +147,44 @@ class ReportServiceTest {
 
         assertThat(reportId).isEqualTo(101L);
         assertThat(reportCase.getReportCount()).isEqualTo(2L);
+        InOrder order = inOrder(userRepository, accountAccessGuard, reportCaseRepository);
+        order.verify(userRepository).lockUserRow(2L);
+        order.verify(accountAccessGuard).requireAccessibleForUpdate(3L);
+        order.verify(userRepository).findById(2L);
+        order.verify(reportCaseRepository).findByTargetKey("COMMUNITY:100");
         verify(reportCaseRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void newlySuspendedReporterIsRejectedBeforeCaseEvidenceOrReportMutation() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCreateRequest request = request(2L, 100L, TargetType.COMMUNITY);
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        doThrow(new CustomException(AuthErrorCode.USER_SUSPENDED))
+                .when(accountAccessGuard).requireAccessibleForUpdate(1L);
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.createReport(1L, request)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        verify(userRepository, never()).lockUserRow(2L);
+        verifyNoInteractions(reportCaseRepository, reportRepository, reportAttachmentService);
+    }
+
+    @Test
+    void reportMutationsUseReadCommittedAfterResolverOrCaseScalarReads() throws Exception {
+        Transactional create = ReportService.class
+                .getMethod("createReport", Long.class, ReportCreateRequest.class)
+                .getAnnotation(Transactional.class);
+        Transactional process = ReportService.class
+                .getMethod("processReport", Long.class, Long.class, ReportProcessRequest.class)
+                .getAnnotation(Transactional.class);
+
+        assertThat(create.isolation()).isEqualTo(Isolation.READ_COMMITTED);
+        assertThat(process.isolation()).isEqualTo(Isolation.READ_COMMITTED);
     }
 
     @Test
@@ -220,9 +283,6 @@ class ReportServiceTest {
 
     @Test
     void resolvedCaseRequiresAdministratorCategory() {
-        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
-        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
-
         CustomException exception = assertThrows(
                 CustomException.class,
                 () -> service.processReport(
@@ -238,12 +298,10 @@ class ReportServiceTest {
 
     @Test
     void alreadyProcessedCaseCannotApplyPenaltyAgain() {
-        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
         Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
         ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
         reportCase.reject(9L, "rejected", java.time.LocalDateTime.now());
-        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
-        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findReportedUserIdByCaseId(10L)).thenReturn(Optional.of(2L));
         when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
 
         CustomException exception = assertThrows(
@@ -256,19 +314,44 @@ class ReportServiceTest {
         );
 
         assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_ALREADY_PROCESSED);
+        InOrder order = inOrder(userRepository, accountAccessGuard, reportCaseRepository);
+        order.verify(userRepository).existsByUserIdAndRole(9L, UserRole.ADMIN);
+        order.verify(reportCaseRepository).findReportedUserIdByCaseId(10L);
+        order.verify(userRepository).lockUserRow(2L);
+        order.verify(accountAccessGuard).requireAccessibleForUpdate(9L);
+        order.verify(reportCaseRepository).findByIdForUpdate(10L);
         verifyNoInteractions(userReportPenaltyService);
     }
 
     @Test
+    void newlySuspendedAdminIsRejectedBeforeCaseOrContentMutation() {
+        when(reportCaseRepository.findReportedUserIdByCaseId(10L)).thenReturn(Optional.of(2L));
+        doThrow(new CustomException(AuthErrorCode.USER_SUSPENDED))
+                .when(accountAccessGuard).requireAccessibleForUpdate(9L);
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.processReport(
+                        9L,
+                        10L,
+                        new ReportProcessRequest(ReportStatus.RESOLVED, ReportCategory.OTHER, null)
+                )
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        verify(reportCaseRepository, never()).findByIdForUpdate(10L);
+        verifyNoInteractions(userReportPenaltyService, activityService, recruitmentService,
+                postService, commentService);
+    }
+
+    @Test
     void resolvingCaseAppliesOnePenaltyAndFinalizesEverySubmission() {
-        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
         Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
         ReportCase reportCase = reportCase(10L, author, 2L, TargetType.USER);
         Report first = report(101L, reportCase, 1L);
         Report second = report(102L, reportCase, 3L);
 
-        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
-        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findReportedUserIdByCaseId(10L)).thenReturn(Optional.of(2L));
         when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
         when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L))
                 .thenReturn(List.of(first, second));
@@ -289,12 +372,10 @@ class ReportServiceTest {
 
     @Test
     void resolvingCommunityCaseUsesModerationDeletion() {
-        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
         Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
         ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
         Report report = report(101L, reportCase, 1L);
-        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
-        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findReportedUserIdByCaseId(10L)).thenReturn(Optional.of(2L));
         when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
         when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L)).thenReturn(List.of(report));
         when(userReportPenaltyService.applyPenalty(reportCase)).thenReturn(PenaltyType.WARNING);
@@ -311,13 +392,32 @@ class ReportServiceTest {
     }
 
     @Test
+    void resolvingActivityCaseUsesModerationDeletionWithoutReenteringPublicGuard() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.ACTIVITY);
+        Report report = report(101L, reportCase, 1L);
+        when(reportCaseRepository.findReportedUserIdByCaseId(10L)).thenReturn(Optional.of(2L));
+        when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L)).thenReturn(List.of(report));
+        when(userReportPenaltyService.applyPenalty(reportCase)).thenReturn(PenaltyType.SUSPENDED_7_DAYS);
+
+        service.processReport(
+                9L,
+                10L,
+                new ReportProcessRequest(ReportStatus.RESOLVED, ReportCategory.OTHER, "confirmed")
+        );
+
+        verify(activityService).deleteForModeration(9L, 100L);
+        verify(activityService, never()).delete(anyLong(), anyLong());
+        assertThat(reportCase.getStatus()).isEqualTo(ReportStatus.RESOLVED);
+    }
+
+    @Test
     void unverifiedStoredTargetCannotBeApproved() {
-        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
         Users claimedAuthor = user(3L, UserRole.USER, UserStatus.ACTIVE);
         ReportCase reportCase = reportCase(10L, claimedAuthor, 100L, TargetType.COMMUNITY);
         Report report = report(101L, reportCase, 1L);
-        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
-        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findReportedUserIdByCaseId(10L)).thenReturn(Optional.of(3L));
         when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
         when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L)).thenReturn(List.of(report));
         doThrow(new CustomException(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED))
@@ -340,7 +440,6 @@ class ReportServiceTest {
 
     @Test
     void quarantinedCaseCannotBeApprovedEvenWhenStoredCoordinatesMatch() {
-        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
         Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
         ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
         ReflectionTestUtils.setField(
@@ -348,8 +447,7 @@ class ReportServiceTest {
                 "moderationReason",
                 "[TARGET_INTEGRITY_QUARANTINED] UNEXPECTED_OPEN_CASE_PENALTY"
         );
-        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
-        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findReportedUserIdByCaseId(10L)).thenReturn(Optional.of(2L));
         when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
 
         CustomException exception = assertThrows(

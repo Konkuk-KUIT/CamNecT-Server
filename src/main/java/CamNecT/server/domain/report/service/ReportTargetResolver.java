@@ -8,6 +8,8 @@ import CamNecT.server.domain.chat.model.ChatRoom;
 import CamNecT.server.domain.chat.repository.ChatRoomRepository;
 import CamNecT.server.domain.community.model.Comments.Comments;
 import CamNecT.server.domain.community.model.Posts.Posts;
+import CamNecT.server.domain.community.model.enums.CommentStatus;
+import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
@@ -48,6 +50,26 @@ public class ReportTargetResolver {
             case ACTIVITY_RECRUITMENT -> fromRecruitment(request);
             case USER -> fromUser(request);
             case CHAT -> fromChat(reporterId, request);
+        };
+    }
+
+    /**
+     * Re-resolves and holds the target row after the reporter and author rows are locked.
+     * This closes the window in which an administrator can delete the target between
+     * initial coordinate resolution and report persistence.
+     */
+    public ResolvedTarget resolveForCreateLocked(Long reporterId, ReportCreateRequest request) {
+        if (request.postType() == null) {
+            throw invalidTarget();
+        }
+
+        return switch (request.postType()) {
+            case COMMUNITY -> fromPostForCreateLocked(request);
+            case COMMUNITY_COMMENT -> fromCommentForCreateLocked(request);
+            case ACTIVITY -> fromActivityForCreateLocked(request);
+            case ACTIVITY_RECRUITMENT -> fromRecruitmentForCreateLocked(request);
+            case USER -> fromUser(request);
+            case CHAT -> fromChatForCreateLocked(reporterId, request);
         };
     }
 
@@ -136,9 +158,53 @@ public class ReportTargetResolver {
     }
 
     private ResolvedTarget fromChat(Long reporterId, ReportCreateRequest request) {
-        ChatRoom room = chatRoomRepository.findById(requiredTargetId(request))
+        Long roomId = requiredTargetId(request);
+        Long targetUserId = chatRoomRepository.findReportTargetUserId(roomId, reporterId)
+                .orElseThrow(this::invalidTarget);
+        Users targetUser = userRepository.findById(targetUserId)
                 .orElseThrow(this::invalidTarget);
 
+        return contentTarget(request, roomId, targetUser);
+    }
+
+    private ResolvedTarget fromPostForCreateLocked(ReportCreateRequest request) {
+        Posts post = postsRepository.findByIdAndStatusForRead(
+                        requiredTargetId(request),
+                        PostStatus.PUBLISHED
+                )
+                .orElseThrow(this::invalidTarget);
+        return contentTarget(request, post.getId(), post.getUser());
+    }
+
+    private ResolvedTarget fromCommentForCreateLocked(ReportCreateRequest request) {
+        Long commentId = requiredTargetId(request);
+        Long postId = commentsRepository.findPostIdByCommentId(commentId)
+                .orElseThrow(this::invalidTarget);
+        postsRepository.findByIdAndStatusForRead(postId, PostStatus.PUBLISHED)
+                .orElseThrow(this::invalidTarget);
+        Comments comment = commentsRepository.findByIdAndStatusForRead(commentId, CommentStatus.PUBLISHED)
+                .orElseThrow(this::invalidTarget);
+        return contentTarget(request, comment.getId(), comment.getUserId());
+    }
+
+    private ResolvedTarget fromActivityForCreateLocked(ReportCreateRequest request) {
+        ExternalActivity activity = activityRepository.findByIdForRead(requiredTargetId(request))
+                .orElseThrow(this::invalidTarget);
+        if (activity.getUser() == null) {
+            throw invalidTarget();
+        }
+        return contentTarget(request, activity.getActivityId(), activity.getUser());
+    }
+
+    private ResolvedTarget fromRecruitmentForCreateLocked(ReportCreateRequest request) {
+        TeamRecruitment recruitment = recruitmentRepository.findByIdForRead(requiredTargetId(request))
+                .orElseThrow(this::invalidTarget);
+        return contentTarget(request, recruitment.getRecruitId(), recruitment.getUserId());
+    }
+
+    private ResolvedTarget fromChatForCreateLocked(Long reporterId, ReportCreateRequest request) {
+        ChatRoom room = chatRoomRepository.findByIdForRead(requiredTargetId(request))
+                .orElseThrow(this::invalidTarget);
         Users targetUser;
         if (Objects.equals(room.getRequester().getUserId(), reporterId)) {
             targetUser = room.getReceiver();
@@ -147,7 +213,6 @@ public class ReportTargetResolver {
         } else {
             throw invalidTarget();
         }
-
         return contentTarget(request, room.getId(), targetUser);
     }
 

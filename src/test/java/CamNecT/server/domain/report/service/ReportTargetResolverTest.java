@@ -5,6 +5,7 @@ import CamNecT.server.domain.activity.repository.recruitment.TeamRecruitmentRepo
 import CamNecT.server.domain.chat.model.ChatRoom;
 import CamNecT.server.domain.chat.repository.ChatRoomRepository;
 import CamNecT.server.domain.community.model.Posts.Posts;
+import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
@@ -71,12 +72,27 @@ class ReportTargetResolverTest {
     }
 
     @Test
+    void deletedPostIsRejectedDuringLockedCreateResolution() {
+        ReportCreateRequest request = request(2L, 100L);
+        when(postsRepository.findByIdAndStatusForRead(100L, PostStatus.PUBLISHED))
+                .thenReturn(Optional.empty());
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> resolver.resolveForCreateLocked(1L, request)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_INVALID_TARGET);
+    }
+
+    @Test
     void chatReportsInOppositeDirectionsUseDifferentCaseKeys() {
         Users requester = Users.builder().userId(1L).name("requester").build();
         Users receiver = Users.builder().userId(2L).name("receiver").build();
-        ChatRoom room = ChatRoom.builder().requester(requester).receiver(receiver).build();
-        ReflectionTestUtils.setField(room, "id", 77L);
-        when(chatRoomRepository.findById(77L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findReportTargetUserId(77L, 1L)).thenReturn(Optional.of(2L));
+        when(chatRoomRepository.findReportTargetUserId(77L, 2L)).thenReturn(Optional.of(1L));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(requester));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(receiver));
 
         ReportTargetResolver.ResolvedTarget requesterReportsReceiver = resolver.resolve(
                 1L, request(2L, 77L, TargetType.CHAT));
@@ -89,11 +105,7 @@ class ReportTargetResolverTest {
 
     @Test
     void chatReportByOutsiderIsRejected() {
-        Users requester = Users.builder().userId(1L).name("requester").build();
-        Users receiver = Users.builder().userId(2L).name("receiver").build();
-        ChatRoom room = ChatRoom.builder().requester(requester).receiver(receiver).build();
-        ReflectionTestUtils.setField(room, "id", 77L);
-        when(chatRoomRepository.findById(77L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findReportTargetUserId(77L, 3L)).thenReturn(Optional.empty());
 
         CustomException exception = assertThrows(CustomException.class,
                 () -> resolver.resolve(3L, request(2L, 77L, TargetType.CHAT)));

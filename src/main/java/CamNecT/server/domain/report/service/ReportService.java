@@ -19,9 +19,11 @@ import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.BaseErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
@@ -33,6 +35,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.hibernate.exception.ConstraintViolationException;
 
@@ -57,6 +60,7 @@ public class ReportService {
     private final ReportCaseRepository reportCaseRepository;
     private final UserReportPenaltyRepository penaltyRepository;
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final PresignEngine presignEngine;
     private final ReportAttachmentService reportAttachmentService;
     private final PostService postService;
@@ -78,15 +82,19 @@ public class ReportService {
     /**
      * 1. 신고 접수
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long createReport(Long reporterId, ReportCreateRequest dto) {
+        if (reporterId == null) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+        }
         List<String> evidenceKeys = dto.evidenceImageKeys() == null ? List.of() : dto.evidenceImageKeys();
-        ReportTargetResolver.ResolvedTarget target = reportTargetResolver.resolve(reporterId, dto);
-        if (reporterId.equals(target.author().getUserId())) {
+        ReportTargetResolver.ResolvedTarget initialTarget = reportTargetResolver.resolve(reporterId, dto);
+        if (reporterId.equals(initialTarget.author().getUserId())) {
             throw new CustomException(ReportErrorCode.REPORT_SELF_NOT_ALLOWED);
         }
 
-        userRepository.lockUserRow(target.author().getUserId());
+        lockActorAndOtherUserInOrder(reporterId, initialTarget.author().getUserId());
+        ReportTargetResolver.ResolvedTarget target = reportTargetResolver.resolveForCreateLocked(reporterId, dto);
         Users targetAuthor = userRepository.findById(target.author().getUserId())
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
@@ -167,9 +175,9 @@ public class ReportService {
     /**
      * 3. 관리자 신고 처리 (승인/반려)
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void processReport(Long userId, Long caseId, ReportProcessRequest request) {
-        validateAdmin(userId);
+        validateAdminRoleWithoutLoading(userId);
 
         ReportStatus newStatus = request.status();
         if (newStatus != ReportStatus.RESOLVED && newStatus != ReportStatus.REJECTED) {
@@ -179,9 +187,13 @@ public class ReportService {
             throw new CustomException(ReportErrorCode.REPORT_CATEGORY_REQUIRED);
         }
 
-        ReportCase caseSnapshot = reportCaseRepository.findById(caseId)
+        Long reportedUserId = reportCaseRepository.findReportedUserIdByCaseId(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
-        userRepository.lockUserRow(caseSnapshot.getReportedUser().getUserId());
+        Users lockedAdmin = lockActorAndOtherUserInOrder(userId, reportedUserId);
+        if (lockedAdmin.getRole() != UserRole.ADMIN) {
+            throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        }
+
         ReportCase reportCase = reportCaseRepository.findByIdForUpdate(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
@@ -209,6 +221,28 @@ public class ReportService {
 
         reportCase.reject(userId, request.reason(), now);
         submissions.forEach(report -> report.updateStatus(ReportStatus.REJECTED));
+    }
+
+    private void validateAdminRoleWithoutLoading(Long userId) {
+        if (userId == null || !userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN)) {
+            if (userId == null || !userRepository.existsById(userId)) {
+                throw new CustomException(UserErrorCode.USER_NOT_FOUND);
+            }
+            throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        }
+    }
+
+    private Users lockActorAndOtherUserInOrder(Long actorId, Long otherUserId) {
+        if (actorId <= otherUserId) {
+            Users actor = accountAccessGuard.requireAccessibleForUpdate(actorId);
+            if (!actorId.equals(otherUserId)) {
+                userRepository.lockUserRow(otherUserId);
+            }
+            return actor;
+        }
+
+        userRepository.lockUserRow(otherUserId);
+        return accountAccessGuard.requireAccessibleForUpdate(actorId);
     }
 
     private void validateExistingCase(
@@ -246,8 +280,8 @@ public class ReportService {
             switch (targetType) {
                 case COMMUNITY -> postService.deleteForModeration(adminId, postId);
                 case COMMUNITY_COMMENT -> commentService.deleteForModeration(adminId, postId);
-                case ACTIVITY -> activityService.delete(postId, adminId);
-                case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitment(adminId, postId);
+                case ACTIVITY -> activityService.deleteForModeration(adminId, postId);
+                case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitmentForModeration(adminId, postId);
                 case USER -> log.info("Skipping account deletion in report processing. caseId={}", reportCase.getCaseId());
                 case CHAT -> log.info("Skipping chat deletion in report processing. caseId={}", reportCase.getCaseId());
             }

@@ -6,9 +6,9 @@ import CamNecT.server.domain.report.model.ReportEvidence;
 import CamNecT.server.domain.report.model.TargetType;
 import CamNecT.server.domain.report.model.props.ReportEvidenceProps;
 import CamNecT.server.domain.report.repository.ReportEvidenceRepository;
-import CamNecT.server.domain.users.model.UserStatus;
-import CamNecT.server.domain.users.model.Users;
-import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
+import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.storage.dto.request.PresignUploadBatchRequest;
 import CamNecT.server.global.storage.dto.response.PresignUploadResponse;
 import CamNecT.server.global.storage.model.UploadPurpose;
@@ -29,16 +29,16 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ReportAttachmentServiceTest {
 
-    @Mock UserRepository userRepository;
+    @Mock AccountAccessGuard accountAccessGuard;
     @Mock PresignEngine presignEngine;
     @Mock UploadTicketRepository ticketRepository;
     @Mock ReportEvidenceRepository evidenceRepository;
@@ -49,7 +49,7 @@ class ReportAttachmentServiceTest {
     @BeforeEach
     void setUp() {
         service = new ReportAttachmentService(
-                userRepository,
+                accountAccessGuard,
                 presignEngine,
                 ticketRepository,
                 evidenceRepository,
@@ -60,7 +60,6 @@ class ReportAttachmentServiceTest {
 
     @Test
     void presignsMultipleEvidenceImagesAsOneBatch() {
-        Users user = Users.builder().userId(1L).name("reporter").status(UserStatus.ACTIVE).build();
         PresignUploadBatchRequest request = new PresignUploadBatchRequest(List.of(
                 new PresignUploadBatchRequest.Item("image/png", 100L, "first.png"),
                 new PresignUploadBatchRequest.Item("image/jpeg", 200L, "second.jpg")
@@ -70,7 +69,6 @@ class ReportAttachmentServiceTest {
                 new PresignUploadResponse("temp/second.jpg", "https://upload/2", LocalDateTime.now(), Map.of())
         );
 
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(globalPresignMethods.normalize("image/png")).thenReturn("image/png");
         when(globalPresignMethods.normalize("image/jpeg")).thenReturn("image/jpeg");
         when(presignEngine.issueUploadBatch(
@@ -83,6 +81,17 @@ class ReportAttachmentServiceTest {
 
         assertThat(service.presignEvidenceBatch(1L, request).items()).hasSize(2);
 
+        InOrder accessOrder = inOrder(accountAccessGuard, globalPresignMethods, presignEngine);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        accessOrder.verify(globalPresignMethods).normalize("image/png");
+        accessOrder.verify(presignEngine).issueUploadBatch(
+                eq(1L),
+                eq(UploadPurpose.REPORT_EVIDENCE),
+                eq("reports/user-1/evidence"),
+                anyList(),
+                eq(5)
+        );
+
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<PresignEngine.IssueItem>> captor = ArgumentCaptor.forClass(List.class);
         verify(presignEngine).issueUploadBatch(
@@ -94,6 +103,23 @@ class ReportAttachmentServiceTest {
         );
         assertThat(captor.getValue()).extracting(PresignEngine.IssueItem::originalFilename)
                 .containsExactly("first.png", "second.jpg");
+    }
+
+    @Test
+    void inaccessibleReporterCannotIssueEvidenceUpload() {
+        PresignUploadBatchRequest request = new PresignUploadBatchRequest(List.of(
+                new PresignUploadBatchRequest.Item("image/png", 100L, "evidence.png")
+        ));
+        doThrow(new CustomException(AuthErrorCode.USER_WITHDRAWN))
+                .when(accountAccessGuard).requireAccessibleForUpdate(1L);
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.presignEvidenceBatch(1L, request)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_WITHDRAWN);
+        verifyNoInteractions(presignEngine, ticketRepository, evidenceRepository, globalPresignMethods);
     }
 
     @Test
