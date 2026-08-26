@@ -50,6 +50,7 @@ import java.util.Map;
 public class ReportService {
 
     private static final String DUPLICATE_REPORT_CONSTRAINT = "uk_report_reporter_case_slot";
+    private static final String TARGET_INTEGRITY_QUARANTINE_PREFIX = "[TARGET_INTEGRITY_QUARANTINED]";
 
     private final ReportRepository reportRepository;
     private final ReportEvidenceRepository evidenceRepository;
@@ -96,6 +97,9 @@ public class ReportService {
                         target.targetId(),
                         dto.postType()
                 )));
+
+        validateExistingCase(reportCase, target, dto.postType());
+        rejectQuarantinedCase(reportCase);
 
         if (reportCase.getStatus() != ReportStatus.RECEIVED) {
             throw new CustomException(ReportErrorCode.REPORT_CASE_CLOSED);
@@ -190,6 +194,8 @@ public class ReportService {
         LocalDateTime now = LocalDateTime.now(clock);
 
         if (newStatus == ReportStatus.RESOLVED) {
+            rejectQuarantinedCase(reportCase);
+            reportTargetResolver.validateStoredCase(reportCase, submissions);
             reportCase.decideCategory(request.decidedCategory());
             PenaltyType penaltyType = userReportPenaltyService.applyPenalty(reportCase);
             deleteReportedContent(userId, reportCase);
@@ -203,6 +209,26 @@ public class ReportService {
 
         reportCase.reject(userId, request.reason(), now);
         submissions.forEach(report -> report.updateStatus(ReportStatus.REJECTED));
+    }
+
+    private void validateExistingCase(
+            ReportCase reportCase,
+            ReportTargetResolver.ResolvedTarget target,
+            TargetType targetType
+    ) {
+        if (!target.targetKey().equals(reportCase.getTargetKey())
+                || !target.targetId().equals(reportCase.getTargetId())
+                || targetType != reportCase.getTargetType()
+                || !target.author().getUserId().equals(reportCase.getReportedUser().getUserId())) {
+            throw new CustomException(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        }
+    }
+
+    private void rejectQuarantinedCase(ReportCase reportCase) {
+        String moderationReason = reportCase.getModerationReason();
+        if (moderationReason != null && moderationReason.startsWith(TARGET_INTEGRITY_QUARANTINE_PREFIX)) {
+            throw new CustomException(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        }
     }
 
     /**

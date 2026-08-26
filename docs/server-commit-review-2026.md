@@ -633,3 +633,41 @@
 
 - `UserReportPenaltyRepositoryTest` 1개, `UserReportPenaltyServiceTest` 6개, `AccountAccessGuardTest` 5개, `LoginServicePushDeviceTest` 6개, `AuthRefreshIntegrationTest` 7개: 총 25개 통과, 실패·오류·건너뜀 0개
 - 실제 JPA 쿼리로 경고·만료 경계·활성 임시 정지·영구 정지·다른 사용자 조건을 확인하고, 세 호출 경로의 기존 오류와 세션 처리 계약을 검증한다.
+
+### `report-corrections-verify-authoritative-target-owner`
+
+관련 변경 흐름:
+
+- `3206629` (#252 연관): 클라이언트가 `reportedUserId`와 대상 ID를 함께 보내는 신고 생성 도입
+- `c669762`: 신고를 `target_key`별 case로 집계하고 case 작성자에게 제재를 적용하도록 개편
+- `3225cae`, `a9d9bc5`: 기존 신고를 Flyway case로 이관하고 신규 신고의 서버 측 대상 해석을 보강
+
+발견한 문제:
+
+- 신규 신고는 현재 콘텐츠에서 작성자를 다시 해석하지만, 기존 case를 재사용할 때 그 case의 작성자·대상 좌표가 현재 해석 결과와 같은지 확인하지 않았다.
+- 관리자 승인도 저장된 `reported_user_id`를 신뢰해 제재했다. 서버 측 해석 이전에 생성·이관된 행이 클라이언트 입력을 잘못 담고 있으면 실제 작성자가 아닌 사용자에게 경고·정지·영구 정지가 적용될 수 있었다.
+- `RECEIVED`인데 이미 제재 행이 있는 비정상 case, 대상이 사라졌거나 submission 좌표가 엇갈린 case를 자동 보정하면 잘못된 제재를 보존하거나 같은 case의 추가 신고를 계속 받을 수 있었다.
+
+교정 내용:
+
+- 기존 case 재사용 시 canonical key, 대상 ID·타입, 현재 콘텐츠 작성자가 모두 일치해야만 새 submission을 받는다.
+- 승인 직전에 현재 게시글·댓글·활동·모집·사용자·채팅방을 다시 조회하고, case와 모든 submission의 작성자·대상 좌표를 검증한다. 채팅은 각 신고자가 방 참여자인지와 모든 신고가 동일한 상대를 가리키는지도 확인한다.
+- `V7`은 원본 의심 값을 영구 감사 테이블에 보존한다. 현재 콘텐츠와 canonical key·submission 구조가 명확히 일치하고 기존 제재가 없는 열린 case만 작성자 ID를 보정한다.
+- 대상 누락·모호성·구조 불일치·열린 case의 기존 제재는 moderation reason에 격리 표식을 남긴다. 격리 case는 신규 신고와 승인을 409/`51903`으로 차단하되 관리자가 반려해 닫는 경로는 유지한다.
+- 이미 처리된 case는 절대 수정하지 않고 감사 대상으로만 남긴다. 비트랜잭션 MySQL DDL 뒤 부분 실패를 복구할 수 있도록 임시 테이블·감사 삽입·격리 표식은 재실행 안전하게 구성한다.
+
+계약 영향:
+
+- 정상 신고 생성·목록·상세·승인·반려의 요청과 응답은 바뀌지 않는다.
+- 서버가 대상 소유권을 증명할 수 없는 기존 데이터만 새 충돌 오류 `REPORT_TARGET_INTEGRITY_UNVERIFIED`(51903)로 보호한다.
+- 프론트가 계약한 대상 ID와 `reportedUserId` 입력 형식은 유지하되 서버가 현재 도메인 데이터를 최종 권위로 사용한다.
+
+검증:
+
+- `ReportServiceTest` 15개, `ReportTargetResolverTest` 8개, `ReportTargetIntegrityMigrationContractTest` 1개: 총 24개 통과, 실패·오류·건너뜀 0개
+- 기존 case 오귀속·격리 재사용·격리 승인 차단, 승인 직전 작성자 재해석, 채팅 참여자 방향, 안전 repair·감사·기존 제재 quarantine·부분 재실행 계약을 검증한다.
+
+배포 전 확인 사항:
+
+- 테스트 프로필은 Flyway를 실행하지 않으므로 `V7` SQL은 계약 테스트와 정적 검토까지만 완료했다. 운영 백업에서 실제 MySQL dry-run을 수행하고 `report_target_integrity_audit`의 finding·remediation 건수를 확인한 뒤 배포해야 한다.
+- `AUDIT_PROCESSED_CASE`는 이미 집행된 제재를 자동 변경하지 않는다. `PENALTY_OWNER_MISMATCH`를 우선 검토해 별도 운영 절차로 복구해야 한다.

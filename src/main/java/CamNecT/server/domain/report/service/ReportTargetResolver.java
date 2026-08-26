@@ -12,6 +12,8 @@ import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
 import CamNecT.server.domain.report.model.Report;
+import CamNecT.server.domain.report.model.ReportCase;
+import CamNecT.server.domain.report.model.TargetType;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
@@ -20,6 +22,7 @@ import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Objects;
 
 @Component
@@ -46,6 +49,54 @@ public class ReportTargetResolver {
             case USER -> fromUser(request);
             case CHAT -> fromChat(reporterId, request);
         };
+    }
+
+    /**
+     * Re-resolves a persisted case from the current domain data. This must run
+     * immediately before approving a case because early report rows trusted the
+     * client-supplied reportedUserId.
+     */
+    public void validateStoredCase(ReportCase reportCase, List<Report> submissions) {
+        if (reportCase == null || submissions == null || submissions.isEmpty()) {
+            throw unverifiedTarget();
+        }
+
+        Users authoritativeAuthor = switch (reportCase.getTargetType()) {
+            case COMMUNITY -> postsRepository.findById(reportCase.getTargetId())
+                    .map(Posts::getUser)
+                    .orElseThrow(this::unverifiedTarget);
+            case COMMUNITY_COMMENT -> commentsRepository.findById(reportCase.getTargetId())
+                    .map(Comments::getUserId)
+                    .flatMap(userRepository::findById)
+                    .orElseThrow(this::unverifiedTarget);
+            case ACTIVITY -> activityRepository.findById(reportCase.getTargetId())
+                    .map(ExternalActivity::getUser)
+                    .orElseThrow(this::unverifiedTarget);
+            case ACTIVITY_RECRUITMENT -> recruitmentRepository.findById(reportCase.getTargetId())
+                    .map(TeamRecruitment::getUserId)
+                    .flatMap(userRepository::findById)
+                    .orElseThrow(this::unverifiedTarget);
+            case USER -> userRepository.findById(reportCase.getTargetId())
+                    .orElseThrow(this::unverifiedTarget);
+            case CHAT -> resolveStoredChatAuthor(reportCase, submissions);
+        };
+
+        Long authoritativeUserId = authoritativeAuthor.getUserId();
+        String authoritativeKey = Report.targetKeyFor(
+                reportCase.getTargetType(),
+                authoritativeUserId,
+                reportCase.getTargetId()
+        );
+        if (!Objects.equals(reportCase.getReportedUser().getUserId(), authoritativeUserId)
+                || !Objects.equals(reportCase.getTargetKey(), authoritativeKey)
+                || submissions.stream().anyMatch(report -> !matchesCase(
+                        report,
+                        reportCase,
+                        authoritativeUserId,
+                        authoritativeKey
+                ))) {
+            throw unverifiedTarget();
+        }
     }
 
     private ResolvedTarget fromPost(ReportCreateRequest request) {
@@ -100,6 +151,48 @@ public class ReportTargetResolver {
         return contentTarget(request, room.getId(), targetUser);
     }
 
+    private Users resolveStoredChatAuthor(ReportCase reportCase, List<Report> submissions) {
+        ChatRoom room = chatRoomRepository.findById(reportCase.getTargetId())
+                .orElseThrow(this::unverifiedTarget);
+        Users authoritativeAuthor = null;
+
+        for (Report report : submissions) {
+            Users submissionTarget;
+            if (Objects.equals(room.getRequester().getUserId(), report.getReporterId())) {
+                submissionTarget = room.getReceiver();
+            } else if (Objects.equals(room.getReceiver().getUserId(), report.getReporterId())) {
+                submissionTarget = room.getRequester();
+            } else {
+                throw unverifiedTarget();
+            }
+
+            if (authoritativeAuthor != null
+                    && !Objects.equals(authoritativeAuthor.getUserId(), submissionTarget.getUserId())) {
+                throw unverifiedTarget();
+            }
+            authoritativeAuthor = submissionTarget;
+        }
+
+        if (authoritativeAuthor == null) {
+            throw unverifiedTarget();
+        }
+        return authoritativeAuthor;
+    }
+
+    private boolean matchesCase(
+            Report report,
+            ReportCase reportCase,
+            Long authoritativeUserId,
+            String authoritativeKey
+    ) {
+        TargetType targetType = reportCase.getTargetType();
+        Long expectedPostId = targetType == TargetType.USER ? null : reportCase.getTargetId();
+        return report.getPostType() == targetType
+                && Objects.equals(report.getReportedUserId(), authoritativeUserId)
+                && Objects.equals(report.getReportedPostId(), expectedPostId)
+                && Objects.equals(report.getTargetKey(), authoritativeKey);
+    }
+
     private ResolvedTarget contentTarget(ReportCreateRequest request, Long targetId, Long actualAuthorId) {
         if (!Objects.equals(request.reportedUserId(), actualAuthorId)) {
             throw invalidTarget();
@@ -133,6 +226,10 @@ public class ReportTargetResolver {
 
     private CustomException invalidTarget() {
         return new CustomException(ReportErrorCode.REPORT_INVALID_TARGET);
+    }
+
+    private CustomException unverifiedTarget() {
+        return new CustomException(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
     }
 
     public record ResolvedTarget(String targetKey, Long targetId, Users author) {

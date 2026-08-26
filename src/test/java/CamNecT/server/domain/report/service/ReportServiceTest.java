@@ -125,6 +125,55 @@ class ReportServiceTest {
     }
 
     @Test
+    void existingCaseWithDifferentAuthorIsNotReused() {
+        Users actualAuthor = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        Users forgedAuthor = user(3L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase forgedCase = reportCase(10L, forgedAuthor, 100L, TargetType.COMMUNITY);
+        ReflectionTestUtils.setField(forgedCase, "targetKey", "COMMUNITY:100");
+        ReportCreateRequest request = request(2L, 100L, TargetType.COMMUNITY);
+
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, actualAuthor));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(actualAuthor));
+        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(forgedCase));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.createReport(1L, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        verify(reportRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void quarantinedExistingCaseDoesNotAcceptNewSubmissions() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        ReflectionTestUtils.setField(
+                reportCase,
+                "moderationReason",
+                "[TARGET_INTEGRITY_QUARANTINED] UNEXPECTED_OPEN_CASE_PENALTY"
+        );
+        ReportCreateRequest request = request(2L, 100L, TargetType.COMMUNITY);
+
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(reportCaseRepository.findByTargetKey("COMMUNITY:100")).thenReturn(Optional.of(reportCase));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.createReport(1L, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        verifyNoInteractions(reportRepository);
+    }
+
+    @Test
     void concurrentDuplicateConstraintIsMappedToDuplicateReport() {
         Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
         ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
@@ -259,6 +308,63 @@ class ReportServiceTest {
         verify(postService).deleteForModeration(9L, 100L);
         verify(postService, never()).delete(anyLong(), anyLong());
         assertThat(reportCase.getStatus()).isEqualTo(ReportStatus.RESOLVED);
+    }
+
+    @Test
+    void unverifiedStoredTargetCannotBeApproved() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users claimedAuthor = user(3L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, claimedAuthor, 100L, TargetType.COMMUNITY);
+        Report report = report(101L, reportCase, 1L);
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L)).thenReturn(List.of(report));
+        doThrow(new CustomException(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED))
+                .when(reportTargetResolver).validateStoredCase(reportCase, List.of(report));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.processReport(
+                        9L,
+                        10L,
+                        new ReportProcessRequest(ReportStatus.RESOLVED, ReportCategory.OTHER, "confirmed")
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        verifyNoInteractions(userReportPenaltyService);
+        verifyNoInteractions(postService);
+    }
+
+    @Test
+    void quarantinedCaseCannotBeApprovedEvenWhenStoredCoordinatesMatch() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        ReflectionTestUtils.setField(
+                reportCase,
+                "moderationReason",
+                "[TARGET_INTEGRITY_QUARANTINED] UNEXPECTED_OPEN_CASE_PENALTY"
+        );
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.processReport(
+                        9L,
+                        10L,
+                        new ReportProcessRequest(ReportStatus.RESOLVED, ReportCategory.OTHER, "confirmed")
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        verifyNoInteractions(reportTargetResolver);
+        verifyNoInteractions(userReportPenaltyService);
     }
 
     @Test

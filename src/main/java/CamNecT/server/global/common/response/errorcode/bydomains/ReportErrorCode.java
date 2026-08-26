@@ -18,7 +18,12 @@ public enum ReportErrorCode implements BaseErrorCode {
     REPORT_INVALID_TARGET(HttpStatus.BAD_REQUEST, 51003, "신고 대상 정보가 올바르지 않습니다."),
     REPORT_INVALID_STATUS(HttpStatus.BAD_REQUEST, 51004, "신고는 승인 또는 반려 상태로만 처리할 수 있습니다."),
     REPORT_CATEGORY_REQUIRED(HttpStatus.BAD_REQUEST, 51005, "승인 시 관리자가 확정한 신고 카테고리가 필요합니다."),
-    REPORT_CASE_CLOSED(HttpStatus.CONFLICT, 51902, "이미 처리가 완료된 신고 대상입니다.");
+    REPORT_CASE_CLOSED(HttpStatus.CONFLICT, 51902, "이미 처리가 완료된 신고 대상입니다."),
+    REPORT_TARGET_INTEGRITY_UNVERIFIED(
+            HttpStatus.CONFLICT,
+            51903,
+            "신고 대상 작성자를 확인할 수 없어 관리자 검토가 필요합니다."
+    );
 
     private final HttpStatus httpStatus;
     private final int code;
