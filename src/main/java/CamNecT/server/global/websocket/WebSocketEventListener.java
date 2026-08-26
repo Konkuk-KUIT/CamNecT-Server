@@ -49,9 +49,9 @@ public class WebSocketEventListener {
                 if (roomId == null) return;
                 Users user = userRepository.findById(userId)
                         .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+                chatService.markAllAsRead(roomId, user);
                 presenceService.enter(roomId, userId, sessionId, subscriptionId);
                 log.info("👤 SUBSCRIBE (입장): userId={}, roomId={}", userId, roomId);
-                chatService.markAllAsRead(roomId, user);
             } catch (Exception e) {
                 log.warn("채팅방 구독 후 읽음 처리 실패. userId={}, roomId={}", userId, roomId, e);
                 errorPublisher.sendToSession(
