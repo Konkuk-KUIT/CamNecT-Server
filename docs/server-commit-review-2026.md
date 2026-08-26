@@ -671,3 +671,30 @@
 
 - 테스트 프로필은 Flyway를 실행하지 않으므로 `V7` SQL은 계약 테스트와 정적 검토까지만 완료했다. 운영 백업에서 실제 MySQL dry-run을 수행하고 `report_target_integrity_audit`의 finding·remediation 건수를 확인한 뒤 배포해야 한다.
 - `AUDIT_PROCESSED_CASE`는 이미 집행된 제재를 자동 변경하지 않는다. `PENALTY_OWNER_MISMATCH`를 우선 검토해 별도 운영 절차로 복구해야 한다.
+
+### `infra-corrections-bind-local-datastores-to-loopback`
+
+관련 변경 흐름:
+
+- `7c6a283` (3월 이전 연계 구성): 로컬 Docker Compose의 MySQL host port 공개
+- `e575b00` (#275 연관): Redis 런타임을 Compose에 추가하고 host port 공개
+
+발견한 문제:
+
+- 개발용 Compose가 MySQL `3307`과 인증이 없는 Redis `6379`를 host의 모든 네트워크 인터페이스에 publish했다.
+- 개발자가 공용·교내 네트워크에서 방화벽 예외가 열린 상태로 Compose를 실행하면 같은 네트워크의 다른 장치가 데이터베이스 또는 인증 세션 Redis에 직접 접근할 수 있었다.
+
+교정 내용:
+
+- 두 host port를 `127.0.0.1`에만 bind한다. app 컨테이너는 기존 Compose 내부 DNS와 container port를 계속 사용한다.
+- 로컬 관리 도구는 기존과 같은 `localhost:3307`, `localhost:6379`로 접속할 수 있다.
+
+계약 영향:
+
+- stage·production Compose와 서버 HTTP 계약은 바뀌지 않는다.
+- 다른 장치에서 개발 PC의 MySQL·Redis로 직접 접속하는 동작만 차단한다.
+
+검증:
+
+- `DockerComposeExposureContractTest` 1개 통과, 실패·오류·건너뜀 0개
+- MySQL·Redis host port가 모두 loopback으로 고정되고 wildcard publish 형식이 다시 들어오지 않는지 검증한다.
