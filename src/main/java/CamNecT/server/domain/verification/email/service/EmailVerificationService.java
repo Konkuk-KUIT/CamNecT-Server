@@ -119,7 +119,9 @@ public class EmailVerificationService {
     public VerifyPasswordResetEmailResponse verifyPasswordResetEmail(VerifyPasswordResetEmailRequest req) {
         // 실패 횟수는 커밋하고, API 예외는 트랜잭션 종료 후 발생시킨다.
         VerificationTransactionResult<VerifyPasswordResetEmailResponse> result = transactionTemplate.execute(status -> {
-            Users user = userRepository.findByEmail(req.email())
+            Long userId = userRepository.findUserIdByEmail(req.email())
+                    .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
+            Users user = userRepository.findByIdForUpdate(userId)
                     .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
 
             validateRecoverableUser(user);
