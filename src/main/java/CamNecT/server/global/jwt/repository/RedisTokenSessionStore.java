@@ -6,6 +6,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
@@ -14,6 +15,33 @@ import java.util.List;
 public class RedisTokenSessionStore implements TokenSessionStore {
 
     private static final DefaultRedisScript<Long> SAVE_SCRIPT = new DefaultRedisScript<>("""
+            local fields = redis.call('HKEYS', KEYS[1])
+            local expiredPrefixes = {}
+            for _, field in ipairs(fields) do
+                if string.sub(field, -3) == ':re' then
+                    local refreshExpiresAt = redis.call('HGET', KEYS[1], field)
+                    if refreshExpiresAt and tonumber(refreshExpiresAt) <= tonumber(ARGV[7]) then
+                        expiredPrefixes[string.sub(field, 1, string.len(field) - 2)] = true
+                    end
+                end
+            end
+            for _, field in ipairs(fields) do
+                local sessionSeparator = string.find(field, ':', 3)
+                if sessionSeparator then
+                    local prefix = string.sub(field, 1, sessionSeparator)
+                    if expiredPrefixes[prefix] then
+                        redis.call('HDEL', KEYS[1], field)
+                    end
+                end
+            end
+
+            if tonumber(ARGV[6]) <= tonumber(ARGV[7]) then
+                if redis.call('HLEN', KEYS[1]) == 0 then
+                    redis.call('DEL', KEYS[1])
+                end
+                return 0
+            end
+
             redis.call('HSET', KEYS[1],
                 ARGV[1], ARGV[2],
                 ARGV[3], ARGV[4],
@@ -49,6 +77,30 @@ public class RedisTokenSessionStore implements TokenSessionStore {
                     redis.call('DEL', KEYS[1])
                 end
             end
+
+            local function pruneExpiredSessions(now)
+                local fields = redis.call('HKEYS', KEYS[1])
+                local expiredPrefixes = {}
+                for _, field in ipairs(fields) do
+                    if string.sub(field, -3) == ':re' then
+                        local refreshExpiresAt = redis.call('HGET', KEYS[1], field)
+                        if refreshExpiresAt and tonumber(refreshExpiresAt) <= tonumber(now) then
+                            expiredPrefixes[string.sub(field, 1, string.len(field) - 2)] = true
+                        end
+                    end
+                end
+                for _, field in ipairs(fields) do
+                    local sessionSeparator = string.find(field, ':', 3)
+                    if sessionSeparator then
+                        local prefix = string.sub(field, 1, sessionSeparator)
+                        if expiredPrefixes[prefix] then
+                            redis.call('HDEL', KEYS[1], field)
+                        end
+                    end
+                end
+            end
+
+            pruneExpiredSessions(ARGV[9])
 
             local current = redis.call('HGET', KEYS[1], ARGV[2])
             local refreshExpiresAt = redis.call('HGET', KEYS[1], ARGV[3])
@@ -98,13 +150,16 @@ public class RedisTokenSessionStore implements TokenSessionStore {
 
     private final StringRedisTemplate redisTemplate;
     private final String keyPrefix;
+    private final Clock clock;
 
     public RedisTokenSessionStore(
             StringRedisTemplate redisTemplate,
-            @Value("${app.auth.redis.key-prefix:camnect:auth:session:}") String keyPrefix
+            @Value("${app.auth.redis.key-prefix:camnect:auth:session:}") String keyPrefix,
+            Clock clock
     ) {
         this.redisTemplate = redisTemplate;
         this.keyPrefix = keyPrefix;
+        this.clock = clock;
     }
 
     @Override
@@ -124,7 +179,8 @@ public class RedisTokenSessionStore implements TokenSessionStore {
                 refreshField(sessionId),
                 refreshTokenHash,
                 refreshExpiryField(sessionId),
-                epochMillis(refreshExpiresAt)
+                epochMillis(refreshExpiresAt),
+                epochMillis(clock.instant())
         );
     }
 
@@ -134,7 +190,7 @@ public class RedisTokenSessionStore implements TokenSessionStore {
                 FIND_ACCESS_SCRIPT,
                 List.of(userKey(userId)),
                 accessField(sessionId, accessTokenHash),
-                epochMillis(Instant.now())
+                epochMillis(clock.instant())
         );
         return Long.valueOf(1L).equals(result);
     }
@@ -160,7 +216,7 @@ public class RedisTokenSessionStore implements TokenSessionStore {
                 epochMillis(newAccessExpiresAt),
                 newRefreshTokenHash,
                 epochMillis(newRefreshExpiresAt),
-                epochMillis(Instant.now())
+                epochMillis(clock.instant())
         );
         if (Long.valueOf(1L).equals(result)) {
             return RefreshRotationResult.ROTATED;

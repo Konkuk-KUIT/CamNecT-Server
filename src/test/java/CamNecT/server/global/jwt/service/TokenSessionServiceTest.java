@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
+import java.time.Clock;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +29,7 @@ class TokenSessionServiceTest {
                 120_000L,
                 60_000L
         );
-        tokenSessionService = new TokenSessionService(new InMemoryTokenSessionStore(), jwtUtil);
+        tokenSessionService = new TokenSessionService(new InMemoryTokenSessionStore(Clock.systemUTC()), jwtUtil);
     }
 
     @Test

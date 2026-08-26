@@ -569,3 +569,37 @@
 
 - S3 `HEAD` 검증과 `COPY` 사이에 같은 key 객체가 교체될 수 있는 ETag 기반 TOCTOU는 별도 저장소 조건부 복사 설계가 필요해 이번 교정 범위에 포함하지 않았다.
 - 신고 외 도메인의 다건 consume은 단건 중복 소비는 차단하지만 요청 간 잠금 순서가 다르면 DB가 한 트랜잭션을 교착 희생자로 롤백할 수 있어 공통 batch API 후보로 기록한다.
+
+### `auth-corrections-prune-expired-token-sessions`
+
+관련 변경 흐름:
+
+- `54e4134`: Redis 토큰 세션 저장소 도입
+- `33fb918`: 사용자별 Redis hash에 refresh 세션과 회전 가능한 access 목록을 함께 저장하는 다중 세션 모델 도입
+- `ad217bb`: 인메모리 저장소의 전체 폐기와 refresh 회전을 같은 모니터로 직렬화
+
+발견한 문제:
+
+- Redis 사용자 hash는 가장 늦은 refresh 만료까지 TTL을 연장하지만 개별 세션 필드는 자체 삭제되지 않았다. 같은 사용자가 반복 로그인하면 앞선 세션이 만료되어도 활성 세션이 key 수명을 계속 연장해 hash field가 누적될 수 있었다.
+- 인메모리 저장소도 save·rotate·access 조회에서 사용자별 만료 refresh 세션을 일관되게 제거하지 않아 로컬 장기 실행에서 불필요한 세션 map이 남았다.
+
+교정 내용:
+
+- Redis save·rotate Lua 안에서 refresh 만료 field를 기준으로 만료된 세션 prefix의 access·refresh·expiry field를 원자적으로 제거한 뒤 새 세션을 저장·회전한다.
+- 이미 만료된 refresh 입력은 Redis와 인메모리 모두 저장하지 않는다. 모든 현재 시각 계산은 주입된 `Clock`을 사용해 구현 간 경계 판정을 맞춘다.
+- 인메모리 save·rotate·access 조회는 해당 사용자의 refresh 만료 세션을 제거하고 빈 사용자 map도 삭제한다.
+
+계약 영향:
+
+- 토큰 형식, 로그인·refresh·로그아웃 API 계약은 바뀌지 않는다.
+- 유효한 다중 기기 세션은 유지하며 refresh 수명이 끝난 세션 field만 다음 save·rotate·조회 시 정리한다.
+
+검증:
+
+- `InMemoryTokenSessionStoreTest` 2개, `RedisTokenSessionStoreTest` 2개, `TokenSessionServiceTest` 6개: 총 10개 통과, 실패·오류·건너뜀 0개
+- 인메모리 만료·빈 map 정리, Redis save·rotate의 원자적 prune 스크립트와 주입 시각 전달, 기존 세션 회전·폐기 계약을 검증한다.
+
+잔여 확인 사항:
+
+- Redis 정리는 로그인·refresh 경로에서 사용자 hash 전체를 순회한다. 사용자별 세션 수 상한이 필요할 정도의 실제 트래픽인지 운영 지표로 먼저 확인하고, 필요하면 TTL을 가진 세션별 key 또는 만료 정렬 집합으로 교체한다.
+- 현재 테스트는 Lua와 호출 계약을 고정한 단위 테스트이며 실제 Redis의 field 삭제·TTL 동작은 배포 전 통합 환경에서 별도 확인이 필요하다.
