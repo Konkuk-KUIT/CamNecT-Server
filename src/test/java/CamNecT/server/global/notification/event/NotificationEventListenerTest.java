@@ -109,8 +109,21 @@ class NotificationEventListenerTest {
                 anyMap()
         );
 
-        verify(pushDeviceService)
-                .disableTokens(List.of());
+        verify(pushDeviceService, never())
+                .disableTokens(anyList());
+    }
+
+    @Test
+    void pushDisablesOnlyInvalidTokensReturnedByFcm() throws Exception {
+        NotifiableEvent event = event(2L, 1L);
+        when(notificationLinkResolver.resolveOrFallback(event)).thenReturn("/community/posts/10");
+        when(pushDeviceService.findEnabledTokens(2L)).thenReturn(List.of("valid", "invalid"));
+        when(fcmSender.sendToTokens(eq(List.of("valid", "invalid")), anyMap()))
+                .thenReturn(new FCMSender.SendResult(2, 1, 1, List.of("invalid")));
+
+        listener.push(event);
+
+        verify(pushDeviceService).disableTokens(List.of("invalid"));
     }
 
     @Test

@@ -71,7 +71,7 @@ public class NotificationService {
         );
         notificationRepository.save(n);
 
-        log.info("[notif] saved (queued). receiver={}, requestId={}", receiverUserId, requestId);
+        log.debug("[notif] saved (queued). receiver={}, requestId={}", receiverUserId, requestId);
     }
 
     @Transactional(readOnly = true)
