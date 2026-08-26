@@ -164,7 +164,7 @@ public class PresignEngine {
         if (!StringUtils.hasText(tempKey)) throw new CustomException(StorageErrorCode.STORAGE_KEY_REQUIRED);
         if (!StringUtils.hasText(finalKeyPrefix)) throw new CustomException(StorageErrorCode.STORAGE_KEY_REQUIRED);
 
-        UploadTicket t = ticketRepo.findByStorageKey(tempKey)
+        UploadTicket t = ticketRepo.findByStorageKeyForUpdate(tempKey)
                 .orElseThrow(() -> new CustomException(StorageErrorCode.UPLOAD_TICKET_NOT_FOUND));
 
         if (!Objects.equals(t.getUserId(), userId)) throw new CustomException(StorageErrorCode.UPLOAD_TICKET_FORBIDDEN);

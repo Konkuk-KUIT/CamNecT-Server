@@ -2,7 +2,9 @@ package CamNecT.server.global.storage.repository;
 
 import CamNecT.server.global.storage.model.UploadPurpose;
 import CamNecT.server.global.storage.model.UploadTicket;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +19,21 @@ import java.util.Optional;
 public interface UploadTicketRepository extends JpaRepository<UploadTicket, Long> {
     Optional<UploadTicket> findByStorageKey(String storageKey);
     List<UploadTicket> findAllByStorageKeyIn(Collection<String> storageKeys);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from UploadTicket t where t.storageKey = :storageKey")
+    Optional<UploadTicket> findByStorageKeyForUpdate(@Param("storageKey") String storageKey);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select t
+              from UploadTicket t
+             where t.storageKey in :storageKeys
+             order by t.storageKey asc
+            """)
+    List<UploadTicket> findAllByStorageKeyInForUpdate(
+            @Param("storageKeys") Collection<String> storageKeys
+    );
 
 
     @Modifying

@@ -97,7 +97,8 @@ public class ReportAttachmentService {
             }
         }
 
-        Map<String, UploadTicket> ticketsByKey = ticketRepo.findAllByStorageKeyIn(evidenceKeys).stream()
+        List<String> lockKeys = evidenceKeys.stream().sorted().toList();
+        Map<String, UploadTicket> ticketsByKey = ticketRepo.findAllByStorageKeyInForUpdate(lockKeys).stream()
                 .collect(Collectors.toMap(UploadTicket::getStorageKey, Function.identity()));
         String finalPrefix = "reports/user-" + userId + "/report-" + report.getReportId() + "/evidence";
         List<ReportEvidence> evidence = new ArrayList<>(evidenceKeys.size());

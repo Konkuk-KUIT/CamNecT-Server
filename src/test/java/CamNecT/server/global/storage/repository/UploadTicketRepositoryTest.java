@@ -3,6 +3,7 @@ package CamNecT.server.global.storage.repository;
 import CamNecT.server.global.storage.model.UploadPurpose;
 import CamNecT.server.global.storage.model.UploadTicket;
 import CamNecT.server.global.common.config.QuerydslConfig;
+import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -11,6 +12,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -47,6 +49,33 @@ class UploadTicketRepositoryTest {
                 .isEqualTo(UploadTicket.Status.PENDING);
         assertThat(repository.findById(otherPurpose.getId()).orElseThrow().getStatus())
                 .isEqualTo(UploadTicket.Status.PENDING);
+    }
+
+    @Test
+    void locksUploadTicketsInStableStorageKeyOrder() throws NoSuchMethodException {
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(10);
+        saveTicket(1L, UploadPurpose.REPORT_EVIDENCE, "temp/b.jpg", expiresAt);
+        saveTicket(1L, UploadPurpose.REPORT_EVIDENCE, "temp/a.jpg", expiresAt);
+        entityManager.clear();
+
+        List<UploadTicket> locked = repository.findAllByStorageKeyInForUpdate(
+                List.of("temp/b.jpg", "temp/a.jpg")
+        );
+
+        assertThat(locked).extracting(UploadTicket::getStorageKey)
+                .containsExactly("temp/a.jpg", "temp/b.jpg");
+        assertThat(repository.findByStorageKeyForUpdate("temp/a.jpg"))
+                .isPresent();
+        assertThat(UploadTicketRepository.class
+                .getMethod("findAllByStorageKeyInForUpdate", java.util.Collection.class)
+                .getAnnotation(org.springframework.data.jpa.repository.Lock.class)
+                .value())
+                .isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+        assertThat(UploadTicketRepository.class
+                .getMethod("findByStorageKeyForUpdate", String.class)
+                .getAnnotation(org.springframework.data.jpa.repository.Lock.class)
+                .value())
+                .isEqualTo(LockModeType.PESSIMISTIC_WRITE);
     }
 
     private UploadTicket saveTicket(

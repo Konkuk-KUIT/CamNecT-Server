@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -32,8 +33,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ReportAttachmentServiceTest {
@@ -111,7 +111,7 @@ class ReportAttachmentServiceTest {
         ReflectionTestUtils.setField(report, "reportId", 101L);
         UploadTicket first = ticket("temp/first.png", "first.png", "image/png", 100L);
         UploadTicket second = ticket("temp/second.jpg", "second.jpg", "image/jpeg", 200L);
-        when(ticketRepository.findAllByStorageKeyIn(List.of("temp/first.png", "temp/second.jpg")))
+        when(ticketRepository.findAllByStorageKeyInForUpdate(List.of("temp/first.png", "temp/second.jpg")))
                 .thenReturn(List.of(first, second));
         when(presignEngine.consume(
                 eq(1L), eq(UploadPurpose.REPORT_EVIDENCE), eq(UploadRefType.REPORT), eq(101L),
@@ -126,14 +126,27 @@ class ReportAttachmentServiceTest {
         List<ReportEvidence> result = service.applyOnReportCreate(
                 1L,
                 report,
-                List.of("temp/first.png", "temp/second.jpg")
+                List.of("temp/second.jpg", "temp/first.png")
         );
 
         assertThat(result).extracting(ReportEvidence::getStorageKey)
-                .containsExactly("final/first.png", "final/second.jpg");
+                .containsExactly("final/second.jpg", "final/first.png");
         assertThat(result).extracting(ReportEvidence::getSortOrder).containsExactly(0, 1);
         assertThat(result).extracting(ReportEvidence::getOriginalFilename)
-                .containsExactly("first.png", "second.jpg");
+                .containsExactly("second.jpg", "first.png");
+
+        InOrder order = inOrder(ticketRepository, presignEngine);
+        order.verify(ticketRepository).findAllByStorageKeyInForUpdate(
+                List.of("temp/first.png", "temp/second.jpg")
+        );
+        order.verify(presignEngine).consume(
+                1L,
+                UploadPurpose.REPORT_EVIDENCE,
+                UploadRefType.REPORT,
+                101L,
+                "temp/second.jpg",
+                "reports/user-1/report-101/evidence"
+        );
     }
 
     private static UploadTicket ticket(String key, String filename, String contentType, long size) {
