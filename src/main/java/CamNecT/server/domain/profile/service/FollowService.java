@@ -8,8 +8,8 @@ import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
-import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 public class FollowService {
     private final UserFollowRepository followRepository;
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final UserProfileRepository userProfileRepository;
     private final PublicUrlIssuer publicUrlIssuer;
 
@@ -36,9 +37,8 @@ public class FollowService {
         }
 
         Map<Long, Users> lockedUsers = lockUsersInOrder(followerId, followingId);
-        Users follower = lockedUsers.get(followerId);
         Users following = lockedUsers.get(followingId);
-        requireCurrentFollower(follower);
+        accountAccessGuard.requireAccessibleForUpdate(followerId);
         if (following == null || following.getStatus() == UserStatus.WITHDRAWN) {
             throw new CustomException(UserErrorCode.USER_NOT_FOUND);
         }
@@ -56,6 +56,8 @@ public class FollowService {
 
     @Transactional
     public void unfollow(Long followerId, Long followingId) {
+        accountAccessGuard.requireAccessibleForUpdate(followerId);
+
         if (!followRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
             throw new CustomException(UserErrorCode.FOLLOW_NOT_FOUND);
         }
@@ -129,15 +131,4 @@ public class FollowService {
         return users;
     }
 
-    private void requireCurrentFollower(Users follower) {
-        if (follower == null) {
-            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
-        }
-        if (follower.getStatus() == UserStatus.SUSPENDED) {
-            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
-        }
-        if (follower.getStatus() == UserStatus.WITHDRAWN) {
-            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
-        }
-    }
 }

@@ -13,6 +13,7 @@ import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.repository.UserTagMapRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.global.storage.service.GlobalPresignMethods;
 import CamNecT.server.global.storage.service.PresignEngine;
@@ -55,6 +56,7 @@ class ProfilePortfolioPreviewTest {
 
         profileService = new ProfileService(
                 userRepository,
+                mock(AccountAccessGuard.class),
                 mock(CertificateRepository.class),
                 mock(ExperienceRepository.class),
                 userProfileRepository,

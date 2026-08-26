@@ -25,6 +25,7 @@ import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.repository.UserTagMapRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.StorageErrorCode;
@@ -65,6 +66,7 @@ public class ProfileService {
             "camnect/portfolio/default/camnect_default_portfolio_thumbnail.png";
 
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final CertificateRepository certificateRepository;
     private final ExperienceRepository experienceRepository;
     private final UserProfileRepository userProfileRepository;
@@ -164,7 +166,7 @@ public class ProfileService {
 
     @Transactional
     public void updatePrivacy(Long userId, UpdatePrivacyRequest request) {
-        userRepository.lockUserRow(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         UserProfile profile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
@@ -179,24 +181,20 @@ public class ProfileService {
 
     @Transactional
     public ProfileStatusResponse updateBio(Long userId, String bio) {
-        userRepository.lockUserRow(userId);
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
 
         userProfile.updateBio(bio);
 
-        return new ProfileStatusResponse(userProfile.getUser().getStatus());
+        return new ProfileStatusResponse(user.getStatus());
     }
 
     @Transactional
     public ProfileStatusResponse createOnboarding(Long userId, UpdateOnboardingRequest req) {
 
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-
-        requireAccessible(user);
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
         if (user.getStatus() != UserStatus.ACTIVE || userProfile.isInitialSetupCompleted()) {
@@ -254,11 +252,7 @@ public class ProfileService {
     @Transactional
     public ProfileStatusResponse updateProfileTags(Long userId, UpdateProfileTagsRequest req) {
 
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-
-        requireAccessible(user);
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
         List<Long> tagIds = (req.tagIds() == null) ? List.of() : req.tagIds().stream().distinct().toList();
 
@@ -282,10 +276,7 @@ public class ProfileService {
 
     @Transactional
     public PresignUploadResponse presignProfileImageUpload(Long userId, PresignUploadRequest req) {
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-        requireAccessible(user);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         String ct = globalPresignMethods.normalize(req.contentType());
 
@@ -310,10 +301,7 @@ public class ProfileService {
     @Transactional
     public void updateMyProfileImage(Long userId, UpdateProfileImageRequest req) {
 
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-        requireAccessible(user);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         UserProfile profile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
@@ -338,15 +326,6 @@ public class ProfileService {
         // 기존 이미지 정리(새 키와 다를 때만)
         if (StringUtils.hasText(oldKey) && !Objects.equals(oldKey, newFinalKey)) {
             globalPresignMethods.deleteAfterCommit(Set.of(oldKey));
-        }
-    }
-
-    private void requireAccessible(Users user) {
-        if (user.getStatus() == UserStatus.SUSPENDED) {
-            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
-        }
-        if (user.getStatus() == UserStatus.WITHDRAWN) {
-            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
         }
     }
 

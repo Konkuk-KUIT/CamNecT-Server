@@ -13,6 +13,7 @@ import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.repository.UserTagMapRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.point.service.PointService;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.when;
 class ProfileOnboardingStateTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final AccountAccessGuard accountAccessGuard = mock(AccountAccessGuard.class);
     private final CertificateRepository certificateRepository = mock(CertificateRepository.class);
     private final ExperienceRepository experienceRepository = mock(ExperienceRepository.class);
     private final UserProfileRepository userProfileRepository = mock(UserProfileRepository.class);
@@ -51,6 +53,7 @@ class ProfileOnboardingStateTest {
     void setUp() {
         profileService = new ProfileService(
                 userRepository,
+                accountAccessGuard,
                 certificateRepository,
                 experienceRepository,
                 userProfileRepository,
@@ -70,7 +73,7 @@ class ProfileOnboardingStateTest {
     void completesProfileEvenWhenAllOptionalValuesAreAbsent() {
         Users user = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
         UserProfile profile = UserProfile.builder().user(user).build();
-        when(userRepository.findByUserId(1L)).thenReturn(Optional.of(user));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(user);
         when(userProfileRepository.findByUserId(1L)).thenReturn(Optional.of(profile));
 
         ProfileStatusResponse response = profileService.createOnboarding(
@@ -87,7 +90,7 @@ class ProfileOnboardingStateTest {
     void rejectsOnboardingBeforeAdminApproval() {
         Users user = Users.builder().userId(1L).status(UserStatus.ADMIN_PENDING).build();
         UserProfile profile = UserProfile.builder().user(user).build();
-        when(userRepository.findByUserId(1L)).thenReturn(Optional.of(user));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(user);
         when(userProfileRepository.findByUserId(1L)).thenReturn(Optional.of(profile));
 
         CustomException exception = assertThrows(CustomException.class,
@@ -104,7 +107,7 @@ class ProfileOnboardingStateTest {
         Users user = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
         UserProfile profile = UserProfile.builder().user(user).build();
         profile.completeInitialSetup();
-        when(userRepository.findByUserId(1L)).thenReturn(Optional.of(user));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(user);
         when(userProfileRepository.findByUserId(1L)).thenReturn(Optional.of(profile));
 
         CustomException exception = assertThrows(CustomException.class,
