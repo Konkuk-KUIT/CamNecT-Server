@@ -14,14 +14,13 @@ import CamNecT.server.domain.community.repository.Comments.AcceptedCommentsRepos
 import CamNecT.server.domain.community.repository.Comments.CommentLikesRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.*;
-import CamNecT.server.domain.report.service.UserReportPenaltyService;
 import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.global.point.model.PointEvent;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.domain.users.model.UserRole;
-import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
@@ -82,7 +81,7 @@ public class PostServiceImpl implements PostService {
     private final PostAttachmentsService postAttachmentsService;
     private final CommunityPostAccessPolicy postAccessPolicy;
     private final PointService pointService;
-    private final UserReportPenaltyService userReportPenaltyService;
+    private final AccountAccessGuard accountAccessGuard;
     private final PresignEngine presignEngine;
 
     private final ApplicationEventPublisher eventPublisher;
@@ -95,8 +94,7 @@ public class PostServiceImpl implements PostService {
             throw new CustomException(CommunityErrorCode.ANONYMOUS_POST_NOT_SUPPORTED);
         }
 
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
         Boards board = boardsRepository.findByCode(req.boardCode())
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.BOARD_NOT_FOUND));
@@ -148,6 +146,8 @@ public class PostServiceImpl implements PostService {
             throw new CustomException(CommunityErrorCode.CANNOT_CHANGE_POST_ANONYMITY);
         }
 
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Posts post = postsRepository.findByIdForUpdate(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
@@ -175,10 +175,12 @@ public class PostServiceImpl implements PostService {
     public void delete(Long userId, Long postId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        Users actor = accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Posts post = postsRepository.findByIdForUpdate(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
-        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAdmin = actor.getRole() == UserRole.ADMIN;
         boolean isOwner = Objects.equals(post.getUser().getUserId(), userId);
 
         if (!(isAdmin || isOwner)) {
@@ -240,8 +242,7 @@ public class PostServiceImpl implements PostService {
     @Transactional
     @Override
     public ToggleLikeResponse toggleLike(Long userId, Long postId) {
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
@@ -405,6 +406,8 @@ public class PostServiceImpl implements PostService {
     public void acceptComment(Long userId, Long postId, Long commentId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Posts post = postsRepository.findByIdForUpdate(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
@@ -459,8 +462,7 @@ public class PostServiceImpl implements PostService {
     @Transactional
     @Override
     public ToggleBookmarkResponse toggleBookmark(Long userId, Long postId) {
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
@@ -489,20 +491,9 @@ public class PostServiceImpl implements PostService {
     @Transactional
     @Override
     public PurchasePostAccessResponse purchasePostAccess(Long userId, Long postId) {
-        userRepository.lockUserRow(userId);
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-
-        if (user.getStatus() == UserStatus.WITHDRAWN) {
-            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
-        }
-        if (user.getStatus() == UserStatus.SUSPENDED
-                || userReportPenaltyService.hasActiveRestriction(userId, user.getStatus())) {
-            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
-        }
-
-        Posts post = postsRepository.findById(postId)
+        Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
         if (!post.getStatus().isPublished()) {

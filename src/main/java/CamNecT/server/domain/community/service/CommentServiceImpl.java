@@ -19,7 +19,9 @@ import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostStatsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
@@ -46,6 +48,7 @@ public class CommentServiceImpl implements CommentService {
     private final UserRepository userRepository;
     private final AcceptedCommentsRepository acceptedCommentsRepository;
     private final CommunityPostAccessPolicy postAccessPolicy;
+    private final AccountAccessGuard accountAccessGuard;
     private final AuthorAssembler  authorAssembler;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -53,6 +56,8 @@ public class CommentServiceImpl implements CommentService {
     @Override
     public CreateCommentResponse create(Long userId, Long postId, CreateCommentRequest req) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
@@ -124,6 +129,8 @@ public class CommentServiceImpl implements CommentService {
     public void update(Long userId, Long commentId, UpdateCommentRequest req) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
 
@@ -146,13 +153,15 @@ public class CommentServiceImpl implements CommentService {
     public void delete(Long userId, Long commentId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        Users actor = accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
 
         requirePublished(comment.getPost());
         requirePublished(comment);
 
-        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAdmin = actor.getRole() == UserRole.ADMIN;
         boolean isOwner = Objects.equals(comment.getUserId(), userId);
 
         //작성자 또는 관리자만 삭제 가능
@@ -201,6 +210,8 @@ public class CommentServiceImpl implements CommentService {
     @Override
     public ToggleCommentLikeResponse toggleLike(Long userId, Long commentId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));

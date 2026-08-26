@@ -18,7 +18,9 @@ import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,6 +51,7 @@ class CommentServiceImplTest {
     @Mock UserRepository userRepository;
     @Mock AcceptedCommentsRepository acceptedCommentsRepository;
     @Mock CommunityPostAccessPolicy postAccessPolicy;
+    @Mock AccountAccessGuard accountAccessGuard;
     @Mock AuthorAssembler authorAssembler;
     @Mock ApplicationEventPublisher eventPublisher;
 
@@ -57,6 +60,8 @@ class CommentServiceImplTest {
     @Test
     void acceptedCommentCannotBeUpdatedOrDeleted() {
         Comments comment = publishedComment(2L, null);
+        when(accountAccessGuard.requireAccessibleForUpdate(2L))
+                .thenReturn(Users.builder().userId(2L).role(UserRole.USER).build());
         when(commentsRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(comment));
         when(acceptedCommentsRepository.existsByComment_Id(20L)).thenReturn(true);
 
@@ -166,17 +171,33 @@ class CommentServiceImplTest {
         Comments ownerComment = comment(post, 20L, 2L, null, CommentStatus.PUBLISHED);
         Comments moderatedComment = comment(post, 21L, 3L, null, CommentStatus.PUBLISHED);
         PostStats stats = PostStats.init(post);
+        when(accountAccessGuard.requireAccessibleForUpdate(2L))
+                .thenReturn(Users.builder().userId(2L).role(UserRole.USER).build());
+        when(accountAccessGuard.requireAccessibleForUpdate(99L))
+                .thenReturn(Users.builder().userId(99L).role(UserRole.ADMIN).build());
         when(commentsRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(ownerComment));
         when(commentsRepository.findByIdForUpdate(21L)).thenReturn(Optional.of(moderatedComment));
-        when(userRepository.existsByUserIdAndRole(2L, UserRole.ADMIN)).thenReturn(false);
-        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
         when(postStatsRepository.findByPostIdForUpdate(10L)).thenReturn(Optional.of(stats));
         assertDoesNotThrow(() -> service.delete(2L, 20L));
         assertDoesNotThrow(() -> service.delete(99L, 21L));
 
         assertThat(ownerComment.getStatus()).isEqualTo(CommentStatus.DELETED);
         assertThat(moderatedComment.getStatus()).isEqualTo(CommentStatus.DELETED);
+        verify(userRepository, never()).existsByUserIdAndRole(anyLong(), eq(UserRole.ADMIN));
         verify(postAccessPolicy, never()).requireReadable(anyLong(), any(), anyBoolean());
+    }
+
+    @Test
+    void inaccessibleActorIsRejectedBeforeCommentLock() {
+        doThrow(new CustomException(AuthErrorCode.USER_SUSPENDED))
+                .when(accountAccessGuard).requireAccessibleForUpdate(2L);
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.toggleLike(2L, 20L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        verify(accountAccessGuard).requireAccessibleForUpdate(2L);
+        verifyNoInteractions(commentsRepository, commentLikesRepository, postStatsRepository);
     }
 
     @Test
@@ -213,6 +234,7 @@ class CommentServiceImplTest {
 
         verify(acceptedCommentsRepository).deleteByComment_Id(20L);
         assertThat(acceptedAnswer.getStatus()).isEqualTo(CommentStatus.DELETED);
+        verifyNoInteractions(accountAccessGuard);
     }
 
     @Test
