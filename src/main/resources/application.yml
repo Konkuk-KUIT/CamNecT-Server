@@ -32,6 +32,7 @@ app:
       key-prefix: ${REDIS_AUTH_KEY_PREFIX:camnect:auth:session:}
     email-verification:
       expiration-minutes: 30
+      resend-cooldown-seconds: ${EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:60}
       mail:
         subject: "CamNecT 이메일 인증번호"
   redis:

@@ -8,7 +8,9 @@ import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.domain.verification.email.model.EmailVerificationLockBucket;
 import CamNecT.server.domain.verification.email.model.EmailVerificationToken;
+import CamNecT.server.domain.verification.email.repository.EmailVerificationLockBucketRepository;
 import CamNecT.server.domain.verification.email.repository.EmailVerificationTokenRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
@@ -24,6 +26,11 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Locale;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,8 +47,13 @@ class EmailVerificationServiceLockingTest {
 
     private static final String EMAIL = "user@example.com";
     private static final String CODE = "123456";
+    private static final Clock CLOCK = Clock.fixed(
+            Instant.parse("2026-08-26T00:00:00Z"),
+            ZoneOffset.UTC
+    );
 
     @Mock EmailVerificationTokenRepository tokenRepository;
+    @Mock EmailVerificationLockBucketRepository lockBucketRepository;
     @Mock UserRepository userRepository;
     @Mock SignupService signupService;
     @Mock PasswordService passwordService;
@@ -55,12 +67,14 @@ class EmailVerificationServiceLockingTest {
     void setUp() {
         service = new EmailVerificationService(
                 tokenRepository,
+                lockBucketRepository,
                 userRepository,
                 signupService,
                 passwordService,
                 jwtUtil,
                 applicationEventPublisher,
-                transactionTemplate
+                transactionTemplate,
+                CLOCK
         );
         when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);
@@ -79,11 +93,20 @@ class EmailVerificationServiceLockingTest {
                 .role(UserRole.USER)
                 .status(UserStatus.ACTIVE)
                 .build();
-        EmailVerificationToken token = EmailVerificationToken.issueForEmail(EMAIL, CODE, 30);
+        EmailVerificationToken token = EmailVerificationToken.issueForEmail(
+                EMAIL,
+                CODE,
+                30,
+                LocalDateTime.now(CLOCK)
+        );
 
         when(userRepository.findUserIdByEmail(EMAIL)).thenReturn(Optional.of(1L));
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(lockedUser));
-        when(tokenRepository.findFirstByEmailAndUsedAtIsNullOrderByIdDesc(EMAIL))
+        short bucketId = bucketFor(EMAIL);
+        when(lockBucketRepository.findByIdForUpdate(bucketId)).thenReturn(Optional.of(
+                EmailVerificationLockBucket.builder().bucketId(bucketId).build()
+        ));
+        when(tokenRepository.findByActiveEmailForUpdate(EMAIL))
                 .thenReturn(Optional.of(token));
         when(jwtUtil.generatePasswordResetToken(1L, UserRole.USER, "latest-password-hash"))
                 .thenReturn("reset-token");
@@ -93,10 +116,11 @@ class EmailVerificationServiceLockingTest {
                 new VerifyPasswordResetEmailRequest(EMAIL, CODE)
         );
 
-        InOrder order = inOrder(userRepository, tokenRepository, jwtUtil);
+        InOrder order = inOrder(userRepository, lockBucketRepository, tokenRepository, jwtUtil);
         order.verify(userRepository).findUserIdByEmail(EMAIL);
         order.verify(userRepository).findByIdForUpdate(1L);
-        order.verify(tokenRepository).findFirstByEmailAndUsedAtIsNullOrderByIdDesc(EMAIL);
+        order.verify(lockBucketRepository).findByIdForUpdate(bucketId);
+        order.verify(tokenRepository).findByActiveEmailForUpdate(EMAIL);
         order.verify(jwtUtil).generatePasswordResetToken(1L, UserRole.USER, "latest-password-hash");
         verify(userRepository, never()).findByEmail(EMAIL);
         assertThat(response.resetToken()).isEqualTo("reset-token");
@@ -124,6 +148,11 @@ class EmailVerificationServiceLockingTest {
         InOrder order = inOrder(userRepository);
         order.verify(userRepository).findUserIdByEmail(EMAIL);
         order.verify(userRepository).findByIdForUpdate(1L);
-        verify(tokenRepository, never()).findFirstByEmailAndUsedAtIsNullOrderByIdDesc(EMAIL);
+        verify(lockBucketRepository, never()).findByIdForUpdate(any());
+        verify(tokenRepository, never()).findByActiveEmailForUpdate(EMAIL);
+    }
+
+    private short bucketFor(String email) {
+        return (short) Math.floorMod(email.trim().toLowerCase(Locale.ROOT).hashCode(), 64);
     }
 }

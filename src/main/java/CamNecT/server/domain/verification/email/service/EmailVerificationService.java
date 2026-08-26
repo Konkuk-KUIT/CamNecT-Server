@@ -13,6 +13,7 @@ import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.verification.email.event.EmailVerificationCodeIssuedEvent;
 import CamNecT.server.domain.verification.email.model.EmailTokenUtil;
 import CamNecT.server.domain.verification.email.model.EmailVerificationToken;
+import CamNecT.server.domain.verification.email.repository.EmailVerificationLockBucketRepository;
 import CamNecT.server.domain.verification.email.repository.EmailVerificationTokenRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.exception.InvalidPropertiesException;
@@ -27,8 +28,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -36,8 +40,10 @@ public class EmailVerificationService {
 
     private static final int MAX_USERNAME_LENGTH = 50;
     private static final int MAX_EMAIL_LENGTH = 255;
+    private static final int EMAIL_LOCK_BUCKET_COUNT = 64;
 
     private final EmailVerificationTokenRepository tokenRepository;
+    private final EmailVerificationLockBucketRepository lockBucketRepository;
     private final UserRepository userRepository;
 
     private final SignupService signupService;
@@ -46,9 +52,13 @@ public class EmailVerificationService {
     private final JwtUtil jwtUtil;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
+    private final Clock clock;
 
     @Value("${app.auth.email-verification.expiration-minutes:30}")
     private long expirationMinutes;
+
+    @Value("${app.auth.email-verification.resend-cooldown-seconds:60}")
+    private long resendCooldownSeconds;
 
 
     /**
@@ -57,23 +67,15 @@ public class EmailVerificationService {
      */
     @Transactional
     public long sendSignupCode(String email) {
+        String normalizedEmail = normalize(email);
+        lockEmailBucket(normalizedEmail);
+
         // 이미 가입된 이메일이면 막기(정책)
-        if (userRepository.existsByEmail(email)) {
+        if (userRepository.existsByEmail(normalizedEmail)) {
             throw new CustomException(AuthErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
-        // 기존 미사용 코드 정리 (최근 1개만 유효하게 운영)
-        tokenRepository.deleteByEmailAndUsedAtIsNull(email);
-
-        String rawCode = EmailTokenUtil.new6DigitCode();
-        EmailVerificationToken token = EmailVerificationToken.issueForEmail(email, rawCode, expirationMinutes);
-        tokenRepository.save(token);
-
-        applicationEventPublisher.publishEvent(
-                new EmailVerificationCodeIssuedEvent(email, rawCode, expirationMinutes)
-        );
-
-        return expirationMinutes;
+        return issueCodeUnlessCoolingDown(normalizedEmail, null);
     }
 
     @Transactional
@@ -94,26 +96,20 @@ public class EmailVerificationService {
             throw new InvalidPropertiesException(invalidProperties);
         }
 
-        Users user = userRepository.findByUsername(normalizedUsername)
+        Long userId = userRepository.findUserIdByUsername(normalizedUsername)
+                .orElseThrow(() -> new InvalidPropertiesException(List.of("username")));
+        Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new InvalidPropertiesException(List.of("username")));
 
-        if (!normalizedEmail.equals(user.getEmail())) {
+        if (!emailsEqual(normalizedEmail, user.getEmail())) {
             throw new InvalidPropertiesException(List.of("email"));
         }
 
         validateRecoverableUser(user);
+        String authoritativeEmail = user.getEmail();
+        lockEmailBucket(authoritativeEmail);
 
-        tokenRepository.deleteByEmailAndUsedAtIsNull(normalizedEmail);
-
-        String rawCode = EmailTokenUtil.new6DigitCode();
-        EmailVerificationToken token = EmailVerificationToken.issueForEmail(normalizedEmail, rawCode, expirationMinutes);
-        tokenRepository.save(token);
-
-        applicationEventPublisher.publishEvent(
-                new EmailVerificationCodeIssuedEvent(normalizedEmail, rawCode, expirationMinutes)
-        );
-
-        return expirationMinutes;
+        return issueCodeUnlessCoolingDown(authoritativeEmail, user);
     }
 
     public VerifyPasswordResetEmailResponse verifyPasswordResetEmail(VerifyPasswordResetEmailRequest req) {
@@ -125,11 +121,15 @@ public class EmailVerificationService {
                     .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
 
             validateRecoverableUser(user);
+            String authoritativeEmail = user.getEmail();
+            lockEmailBucket(authoritativeEmail);
 
-            EmailVerificationToken token = tokenRepository.findFirstByEmailAndUsedAtIsNullOrderByIdDesc(req.email())
+            EmailVerificationToken token = tokenRepository
+                    .findByActiveEmailForUpdate(canonicalEmail(authoritativeEmail))
                     .orElseThrow(() -> new CustomException(VerificationErrorCode.NO_ACTIVE_CODE));
 
-            if (token.isExpired()) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
+            LocalDateTime now = LocalDateTime.now(clock);
+            if (token.isExpired(now)) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
             if (token.isLocked()) throw new CustomException(VerificationErrorCode.TOO_MANY_ATTEMPTS);
 
             if (!token.matchesCode(req.code())) {
@@ -139,7 +139,7 @@ public class EmailVerificationService {
                         : VerificationErrorCode.INVALID_CODE);
             }
 
-            token.markUsed();
+            token.markUsed(now);
             token.linkUser(user);
 
             String resetToken = jwtUtil.generatePasswordResetToken(
@@ -169,18 +169,23 @@ public class EmailVerificationService {
     public VerifySignupEmailResponse verifySignupAndCreateUser(VerifySignupEmailRequest req) {
         // 실패 횟수는 커밋하고, 회원가입 예외는 정상 롤백되도록 트랜잭션 밖으로 전달한다.
         VerificationTransactionResult<VerifySignupEmailResponse> result = transactionTemplate.execute(status -> {
+            String normalizedEmail = normalize(req.email());
+            lockEmailBucket(normalizedEmail);
+
             // 인증 성공 후에만 사용자를 생성하므로, 같은 이메일의 사용자가 있으면 이미 가입 완료된 상태다.
-            Users existing = userRepository.findByEmail(req.email()).orElse(null);
+            Users existing = userRepository.findByEmail(normalizedEmail).orElse(null);
             if (existing != null) {
                 return VerificationTransactionResult.success(
                         new VerifySignupEmailResponse(existing.getUserId(), true, null, 0L)
                 );
             }
 
-            EmailVerificationToken token = tokenRepository.findFirstByEmailAndUsedAtIsNullOrderByIdDesc(req.email())
+            EmailVerificationToken token = tokenRepository
+                    .findByActiveEmailForUpdate(canonicalEmail(normalizedEmail))
                     .orElseThrow(() -> new CustomException(VerificationErrorCode.NO_ACTIVE_CODE));
 
-            if (token.isExpired()) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
+            LocalDateTime now = LocalDateTime.now(clock);
+            if (token.isExpired(now)) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
             if (token.isLocked()) throw new CustomException(VerificationErrorCode.TOO_MANY_ATTEMPTS);
 
             if (!token.matchesCode(req.code())) {
@@ -193,7 +198,7 @@ public class EmailVerificationService {
             Users user = signupService.signupVerifiedUser(req);
 
             // 토큰 사용 처리 + user 연결
-            token.markUsed();
+            token.markUsed(now);
             token.linkUser(user);
 
             // 임시 토큰 발급(기존 로직 유지)
@@ -207,6 +212,59 @@ public class EmailVerificationService {
         });
 
         return unwrap(result);
+    }
+
+    private long issueCodeUnlessCoolingDown(String email, Users tokenOwner) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        String activeEmail = canonicalEmail(email);
+        EmailVerificationToken activeToken = tokenRepository.findByActiveEmail(activeEmail).orElse(null);
+        if (activeToken != null
+                && !activeToken.isExpired(now)
+                && isCoolingDown(activeToken, now)) {
+            if (tokenOwner != null) {
+                activeToken.linkUser(tokenOwner);
+            }
+            // Keep the existing accepted-response contract without invalidating or re-mailing the current code.
+            return expirationMinutes;
+        }
+
+        // JPQL bulk delete executes before the IDENTITY insert, so the active-email unique guard cannot
+        // observe the superseded token and the replacement at the same time.
+        tokenRepository.deleteByActiveEmail(activeEmail);
+
+        String rawCode = EmailTokenUtil.new6DigitCode();
+        EmailVerificationToken token = EmailVerificationToken.issueForEmail(
+                email,
+                rawCode,
+                expirationMinutes,
+                now
+        );
+        if (tokenOwner != null) {
+            token.linkUser(tokenOwner);
+        }
+        tokenRepository.save(token);
+
+        applicationEventPublisher.publishEvent(
+                new EmailVerificationCodeIssuedEvent(email, rawCode, expirationMinutes)
+        );
+
+        return expirationMinutes;
+    }
+
+    private boolean isCoolingDown(EmailVerificationToken token, LocalDateTime now) {
+        return resendCooldownSeconds > 0
+                && token.getCreatedAt() != null
+                && token.getCreatedAt().plusSeconds(resendCooldownSeconds).isAfter(now);
+    }
+
+    private void lockEmailBucket(String email) {
+        short bucketId = (short) Math.floorMod(
+                canonicalEmail(email).hashCode(),
+                EMAIL_LOCK_BUCKET_COUNT
+        );
+        lockBucketRepository.findByIdForUpdate(bucketId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Missing email verification lock bucket: " + bucketId));
     }
 
     private <T> T unwrap(VerificationTransactionResult<T> result) {
@@ -231,6 +289,14 @@ public class EmailVerificationService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String canonicalEmail(String value) {
+        return normalize(value).toLowerCase(Locale.ROOT);
+    }
+
+    private boolean emailsEqual(String left, String right) {
+        return canonicalEmail(left).equals(canonicalEmail(right));
     }
 
     private void validateRecoverableUser(Users user) {
