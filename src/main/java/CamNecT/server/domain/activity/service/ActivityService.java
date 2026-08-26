@@ -104,6 +104,9 @@ public class ActivityService {
 
     @Transactional
     public ActivityPreviewResponse create(Long userId, ActivityRequest request) {
+        validateGeneralActivityCategory(request.category());
+        validateActiveTagIds(request.tagIds());
+
         Users userRef = userRepository.getReferenceById(userId);
         // 1. 엔티티 기본 저장
         ExternalActivity saved = activityRepository.save(ExternalActivity.builder()
@@ -197,6 +200,7 @@ public class ActivityService {
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
         if (adminUser.getRole() != UserRole.ADMIN) throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        validateActiveTagIds(request.tagIds());
 
         ExternalActivity saved = activityRepository.save(ExternalActivity.builder()
                 .user(adminUser)
@@ -247,12 +251,16 @@ public class ActivityService {
 
     @Transactional
     public void update(Long userId, Long activityId, ActivityRequest request) {
+        validateGeneralActivityCategory(request.category());
+
         ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         if (activity.getUser() == null || !Objects.equals(activity.getUser().getUserId(), userId)) {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
+        validateGeneralActivityCategory(activity.getCategory());
+        validateActiveTagIds(request.tagIds());
 
         Set<String> deleteAfterCommit = new HashSet<>();
 
@@ -414,6 +422,7 @@ public class ActivityService {
         if (!userRepository.existsByUserIdAndRole(adminId, UserRole.ADMIN)) {
             throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
         }
+        validateActiveTagIds(request.tagIds());
 
         Set<String> deleteAfterCommit = new HashSet<>();
         String finalThumbPrefix = "activity/activities/activity-" + activity.getActivityId() + "/attachments/thumbnail";
@@ -695,6 +704,25 @@ public class ActivityService {
     }
 
     // --- Helper Methods ---
+
+    private void validateGeneralActivityCategory(ActivityCategory category) {
+        if (category != ActivityCategory.STUDY && category != ActivityCategory.CLUB) {
+            throw new CustomException(ActivityErrorCode.INVALID_ACTIVITY_CATEGORY);
+        }
+    }
+
+    private void validateActiveTagIds(List<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) return;
+
+        if (tagIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new CustomException(ActivityErrorCode.INVALID_TAG_IDS);
+        }
+
+        List<Long> uniqueIds = tagIds.stream().distinct().toList();
+        if (tagRepository.findExistingActiveIds(uniqueIds).size() != uniqueIds.size()) {
+            throw new CustomException(ActivityErrorCode.INVALID_TAG_IDS);
+        }
+    }
 
     /**
      * thumbnail 전용 URL 제공 메서드
