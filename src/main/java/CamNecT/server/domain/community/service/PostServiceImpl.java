@@ -301,8 +301,9 @@ public class PostServiceImpl implements PostService {
                 .map(ac -> ac.getComment().getId())
                 .orElse(null);
 
+        boolean adminRead = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
         CommunityPostAccessPolicy.AccessDecision accessDecision =
-                postAccessPolicy.evaluate(userId, post, acceptedOpt.isPresent());
+                postAccessPolicy.evaluate(userId, adminRead, post, acceptedOpt.isPresent());
         ContentAccessStatus accessStatus = accessDecision.status();
         Integer requiredPoints = accessDecision.requiredPoints();
         Integer myPoints = accessDecision.myPoints();

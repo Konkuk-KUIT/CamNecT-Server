@@ -42,7 +42,7 @@ public class PostSummaryAssembler {
     @Value("${app.point.cost.question-view:100}")
     private int questionViewCost;
 
-    public AssembleResult assemble(Long userId, List<Posts> posts) {
+    public AssembleResult assemble(Long userId, boolean adminRead, List<Posts> posts) {
         if (posts == null || posts.isEmpty()) return new AssembleResult(List.of(), new CursorStats(0L, 0L, 0L));
 
         List<Long> postIds = posts.stream().map(Posts::getId).toList();
@@ -85,16 +85,16 @@ public class PostSummaryAssembler {
                 .map(Posts::getId)
                 .toList();
 
-        Set<Long> acceptedAnswerSet = (userId != null && !paywalledIds.isEmpty())
+        Set<Long> acceptedAnswerSet = (userId != null && !adminRead && !paywalledIds.isEmpty())
                 ? new HashSet<>(acceptedCommentsRepository.findAcceptedAnswerPostIds(userId, paywalledIds))
                 : Set.of();
 
-        Set<Long> grantedSet = (userId != null && !paywalledIds.isEmpty())
+        Set<Long> grantedSet = (userId != null && !adminRead && !paywalledIds.isEmpty())
                 ? new HashSet<>(postAccessRepository.findGrantedPostIds(userId, paywalledIds))
                 : Set.of();
 
         Integer myPoints = null;
-        boolean needBalance = (userId != null) && posts.stream().anyMatch(p ->
+        boolean needBalance = (userId != null && !adminRead) && posts.stream().anyMatch(p ->
                 postAccessPolicy.isPaywallActive(p, acceptedPostIds.contains(p.getId()))
                         && !Objects.equals(userId, p.getUser().getUserId())
                         && !acceptedAnswerSet.contains(p.getId())
@@ -126,7 +126,8 @@ public class PostSummaryAssembler {
                 accessStatus = ContentAccessStatus.GRANTED;
             } else if (userId == null) {
                 accessStatus = ContentAccessStatus.LOGIN_REQUIRED;
-            } else if (Objects.equals(userId, p.getUser().getUserId())
+            } else if (adminRead
+                    || Objects.equals(userId, p.getUser().getUserId())
                     || acceptedAnswerSet.contains(p.getId())
                     || grantedSet.contains(p.getId())) {
                 accessStatus = ContentAccessStatus.GRANTED;

@@ -58,7 +58,7 @@ public class CommentServiceImpl implements CommentService {
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
         requirePublished(post);
-        postAccessPolicy.requireReadable(userId, post);
+        postAccessPolicy.requireReadable(userId, post, false);
 
         Comments parent = null;
         if (req.parentCommentId() != null) {
@@ -207,7 +207,7 @@ public class CommentServiceImpl implements CommentService {
 
         requirePublished(comment.getPost());
         requirePublished(comment);
-        postAccessPolicy.requireReadable(userId, comment.getPost());
+        postAccessPolicy.requireReadable(userId, comment.getPost(), false);
 
         boolean liked;
         if (commentLikesRepository.existsByComment_IdAndUserId(commentId, userId)) {
@@ -234,7 +234,8 @@ public class CommentServiceImpl implements CommentService {
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
         requirePublished(post);
-        postAccessPolicy.requireReadable(userId, post);
+        boolean adminRead = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        postAccessPolicy.requireReadable(userId, post, adminRead);
 
         if (cursorId != null && cursorId <= 0) {
             throw new CustomException(CommunityErrorCode.INVALID_CURSOR);

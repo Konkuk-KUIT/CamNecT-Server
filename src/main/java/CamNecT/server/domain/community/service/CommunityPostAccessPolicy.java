@@ -43,7 +43,7 @@ public class CommunityPostAccessPolicy {
         return isPaywallActive(post, acceptedCommentsRepository.existsByPost_Id(post.getId()));
     }
 
-    public AccessDecision evaluate(Long userId, Posts post, boolean hasAcceptedComment) {
+    public AccessDecision evaluate(Long userId, boolean adminRead, Posts post, boolean hasAcceptedComment) {
         if (!isPaywallActive(post, hasAcceptedComment)) {
             return AccessDecision.free();
         }
@@ -57,7 +57,8 @@ public class CommunityPostAccessPolicy {
             );
         }
 
-        if (isOwner(userId, post)
+        if (adminRead
+                || isOwner(userId, post)
                 || isAcceptedAnswerAuthor(userId, post.getId())
                 || postAccessRepository.existsByPost_IdAndUser_UserId(post.getId(), userId)) {
             return new AccessDecision(
@@ -76,10 +77,11 @@ public class CommunityPostAccessPolicy {
         return new AccessDecision(status, questionViewCost, myPoints, true);
     }
 
-    public void requireReadable(Long userId, Posts post) {
+    public void requireReadable(Long userId, Posts post, boolean adminRead) {
         if (!isPaywallActive(post)) return;
 
-        if (userId != null && (isOwner(userId, post)
+        if (userId != null && (adminRead
+                || isOwner(userId, post)
                 || isAcceptedAnswerAuthor(userId, post.getId())
                 || postAccessRepository.existsByPost_IdAndUser_UserId(post.getId(), userId))) {
             return;

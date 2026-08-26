@@ -26,7 +26,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class PostSummaryAssemblerTest {
@@ -67,7 +69,7 @@ class PostSummaryAssemblerTest {
         when(postAttachmentsRepository.findThumbCandidates(List.of(10L))).thenReturn(List.of());
         when(authorAssembler.buildAuthorMap(List.of())).thenReturn(Map.of());
 
-        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+        PostSummaryResponse result = assembler.assemble(2L, false, List.of(post)).items().getFirst();
 
         assertThat(result.preview()).isEqualTo("본문은 정상적으로 노출된다");
         assertThat(result.author()).isNull();
@@ -101,7 +103,7 @@ class PostSummaryAssemblerTest {
         when(publicUrlIssuer.issueImagePublicUrl("community/thumb.png")).thenReturn("https://cdn/thumb.png");
         when(postAccessPolicy.isPaywallActive(post, true)).thenReturn(true);
 
-        PostSummaryResponse result = assembler.assemble(1L, List.of(post)).items().getFirst();
+        PostSummaryResponse result = assembler.assemble(1L, false, List.of(post)).items().getFirst();
 
         assertThat(result.accessStatus()).isEqualTo(CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED);
         assertThat(result.thumbnailUrl()).isEqualTo("https://cdn/thumb.png");
@@ -131,7 +133,7 @@ class PostSummaryAssemblerTest {
         when(pointService.getBalance(2L)).thenReturn(50);
         when(postAccessPolicy.isPaywallActive(post, true)).thenReturn(true);
 
-        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+        PostSummaryResponse result = assembler.assemble(2L, false, List.of(post)).items().getFirst();
 
         assertThat(result.accessStatus()).isEqualTo(
                 CamNecT.server.domain.community.model.enums.ContentAccessStatus.INSUFFICIENT_POINTS
@@ -162,7 +164,7 @@ class PostSummaryAssemblerTest {
         when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
         when(postAccessPolicy.isPaywallActive(post, true)).thenReturn(true);
 
-        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+        PostSummaryResponse result = assembler.assemble(2L, false, List.of(post)).items().getFirst();
 
         assertThat(result.accessStatus()).isEqualTo(
                 CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED
@@ -192,7 +194,7 @@ class PostSummaryAssemblerTest {
         when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
         when(postAccessPolicy.isPaywallActive(post, false)).thenReturn(false);
 
-        PostSummaryResponse result = assembler.assemble(2L, List.of(post)).items().getFirst();
+        PostSummaryResponse result = assembler.assemble(2L, false, List.of(post)).items().getFirst();
 
         assertThat(result.accessStatus()).isEqualTo(
                 CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED
@@ -201,5 +203,36 @@ class PostSummaryAssemblerTest {
         assertThat(result.requiredPoints()).isNull();
         assertThat(result.myPoints()).isNull();
         org.mockito.Mockito.verifyNoInteractions(postAccessRepository, pointService);
+    }
+
+    @Test
+    void administratorSummaryIncludesProtectedPreviewWithoutEntitlementQueries() {
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.QUESTION, "질문"))
+                .user(Users.builder().userId(1L).build())
+                .title("채택된 질문")
+                .content("감사용 보호 본문")
+                .status(CamNecT.server.domain.community.model.enums.PostStatus.PUBLISHED)
+                .accessType(PostAccessType.POINT_REQUIRED)
+                .build();
+
+        when(postStatsRepository.findByPost_IdIn(List.of(10L))).thenReturn(List.of());
+        when(postTagsRepository.findAllByPostIdsWithTag(List.of(10L))).thenReturn(List.of());
+        when(acceptedCommentsRepository.findAcceptedPostIds(List.of(10L))).thenReturn(List.of(10L));
+        when(postAttachmentsRepository.findThumbCandidates(List.of(10L))).thenReturn(List.of());
+        when(authorAssembler.buildAuthorMap(List.of(1L))).thenReturn(Map.of());
+        when(postAccessPolicy.isPaywallActive(post, true)).thenReturn(true);
+
+        PostSummaryResponse result = assembler.assemble(99L, true, List.of(post)).items().getFirst();
+
+        assertThat(result.accessStatus()).isEqualTo(
+                CamNecT.server.domain.community.model.enums.ContentAccessStatus.GRANTED
+        );
+        assertThat(result.preview()).isEqualTo("감사용 보호 본문");
+        assertThat(result.myPoints()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(postAccessRepository, pointService);
+        org.mockito.Mockito.verify(acceptedCommentsRepository, never())
+                .findAcceptedAnswerPostIds(anyLong(), anyList());
     }
 }

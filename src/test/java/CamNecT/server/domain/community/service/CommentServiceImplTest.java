@@ -133,7 +133,7 @@ class CommentServiceImplTest {
         Posts post = publishedPost();
         when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
         doThrow(new CustomException(CommunityErrorCode.POST_FORBIDDEN))
-                .when(postAccessPolicy).requireReadable(2L, post);
+                .when(postAccessPolicy).requireReadable(2L, post, false);
 
         CustomException exception = assertThrows(CustomException.class,
                 () -> service.list(2L, 10L, null, 20));
@@ -149,7 +149,7 @@ class CommentServiceImplTest {
         when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
         when(commentsRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(comment));
         doThrow(new CustomException(CommunityErrorCode.POST_FORBIDDEN))
-                .when(postAccessPolicy).requireReadable(2L, post);
+                .when(postAccessPolicy).requireReadable(2L, post, false);
 
         assertThrows(CustomException.class,
                 () -> service.create(2L, 10L, new CreateCommentRequest("댓글", null)));
@@ -176,7 +176,28 @@ class CommentServiceImplTest {
 
         assertThat(ownerComment.getStatus()).isEqualTo(CommentStatus.DELETED);
         assertThat(moderatedComment.getStatus()).isEqualTo(CommentStatus.DELETED);
-        verify(postAccessPolicy, never()).requireReadable(anyLong(), any());
+        verify(postAccessPolicy, never()).requireReadable(anyLong(), any(), anyBoolean());
+    }
+
+    @Test
+    void administratorBypassIsLimitedToCommentRead() {
+        Posts post = publishedPost();
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+        when(commentsRepository.findRootPage(
+                eq(10L), eq(List.of(CommentStatus.PUBLISHED, CommentStatus.DELETED)),
+                isNull(), any(Pageable.class)
+        )).thenReturn(List.of());
+
+        assertDoesNotThrow(() -> service.list(99L, 10L, null, 20));
+        verify(postAccessPolicy).requireReadable(99L, post, true);
+
+        doThrow(new CustomException(CommunityErrorCode.POST_FORBIDDEN))
+                .when(postAccessPolicy).requireReadable(99L, post, false);
+
+        assertThrows(CustomException.class,
+                () -> service.create(99L, 10L, new CreateCommentRequest("관리자 댓글", null)));
+        verify(commentsRepository, never()).save(any());
     }
 
     @Test

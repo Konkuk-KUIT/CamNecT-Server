@@ -5,6 +5,7 @@ import CamNecT.server.domain.community.dto.request.UpdatePostRequest;
 import CamNecT.server.domain.community.dto.response.PostDetailResponse;
 import CamNecT.server.domain.community.dto.response.PurchasePostAccessResponse;
 import CamNecT.server.domain.community.model.Boards;
+import CamNecT.server.domain.community.model.Comments.AcceptedComments;
 import CamNecT.server.domain.community.model.Comments.Comments;
 import CamNecT.server.domain.community.model.Posts.PostStats;
 import CamNecT.server.domain.community.model.Posts.Posts;
@@ -12,6 +13,7 @@ import CamNecT.server.domain.community.model.enums.BoardCode;
 import CamNecT.server.domain.community.model.enums.CommentStatus;
 import CamNecT.server.domain.community.model.enums.ContentAccessStatus;
 import CamNecT.server.domain.community.model.enums.PostStatus;
+import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.repository.BoardsRepository;
 import CamNecT.server.domain.community.repository.Comments.AcceptedCommentsRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentLikesRepository;
@@ -194,7 +196,7 @@ class PostServiceImplTest {
         when(postStatsRepository.findByPost_Id(10L)).thenReturn(Optional.of(stats));
         when(postTagsRepository.findByPost_Id(10L)).thenReturn(List.of());
         when(acceptedCommentsRepository.findByPost_Id(10L)).thenReturn(Optional.empty());
-        when(postAccessPolicy.evaluate(2L, post, false)).thenReturn(
+        when(postAccessPolicy.evaluate(2L, false, post, false)).thenReturn(
                 new CommunityPostAccessPolicy.AccessDecision(ContentAccessStatus.GRANTED, null, null, false)
         );
         when(postAttachmentsRepository.findByPost_IdAndStatusTrueOrderBySortOrderAscIdAsc(10L)).thenReturn(List.of());
@@ -207,6 +209,41 @@ class PostServiceImplTest {
         assertThat(result.author()).isNull();
         verifyNoInteractions(authorAssembler);
         verify(postStatsRepository).incrementView(eq(10L), any());
+    }
+
+    @Test
+    void administratorDetailPassesPrivilegedReadToCentralPolicy() {
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.QUESTION, BoardCode.QUESTION.name()))
+                .user(Users.builder().userId(1L).build())
+                .title("제목")
+                .content("감사용 보호 본문")
+                .isAnonymous(true)
+                .status(PostStatus.PUBLISHED)
+                .accessType(PostAccessType.POINT_REQUIRED)
+                .build();
+        PostStats stats = PostStats.init(post);
+        Comments acceptedComment = Comments.builder().id(20L).post(post).userId(3L).build();
+        AcceptedComments accepted = AcceptedComments.of(post, acceptedComment, 1L);
+
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
+        when(postStatsRepository.incrementView(eq(10L), any())).thenReturn(1);
+        when(postStatsRepository.findByPost_Id(10L)).thenReturn(Optional.of(stats));
+        when(postTagsRepository.findByPost_Id(10L)).thenReturn(List.of());
+        when(acceptedCommentsRepository.findByPost_Id(10L)).thenReturn(Optional.of(accepted));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+        when(postAccessPolicy.evaluate(99L, true, post, true)).thenReturn(
+                new CommunityPostAccessPolicy.AccessDecision(ContentAccessStatus.GRANTED, 100, null, true)
+        );
+        when(postAttachmentsRepository.findByPost_IdAndStatusTrueOrderBySortOrderAscIdAsc(10L))
+                .thenReturn(List.of());
+
+        PostDetailResponse result = service.getDetail(99L, 10L);
+
+        assertThat(result.content()).isEqualTo("감사용 보호 본문");
+        assertThat(result.accessStatus()).isEqualTo(ContentAccessStatus.GRANTED);
+        verify(postAccessPolicy).evaluate(99L, true, post, true);
     }
 
     @Test

@@ -7,6 +7,8 @@ import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.community.repository.Posts.*;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
+import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ import java.util.*;
 @Transactional(readOnly = true)
 public class PostQueryServiceImpl implements PostQueryService {
     private final PostsRepository postsRepository;
+    private final UserRepository userRepository;
 
     private final PostSummaryAssembler postSummaryAssembler;
 
@@ -33,37 +36,39 @@ public class PostQueryServiceImpl implements PostQueryService {
         BoardCode code = toBoardCode(tab);
         String kw = normalizeKeyword(keyword);
         validateCursor(sort, cursorId, cursorValue);
+        boolean adminRead = isAdmin(userId);
 
         Slice<Posts> slice = switch (sort) {
             case LATEST -> postsRepository.findFeedLatestWithFilter(
                     PostStatus.PUBLISHED, code, tagId, kw,
-                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorId, PageRequest.of(0, limit)
             );
             case RECOMMENDED -> postsRepository.findFeedRecommended(
                     PostStatus.PUBLISHED, code, tagId, kw,
-                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case LIKE -> postsRepository.findFeedLikeDesc(
                     PostStatus.PUBLISHED, code, tagId, kw,
-                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case BOOKMARK -> postsRepository.findFeedBookmarkDesc(
                     PostStatus.PUBLISHED, code, tagId, kw,
-                    userId, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
+                    userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorValue, cursorId, PageRequest.of(0, limit)
             );
         };
 
-        return mapToListResponse(userId, slice, sort);
+        return mapToListResponse(userId, adminRead, slice, sort);
     }
 
     @Override
     public PostListResponse getPostsByTag(Long userId, Long tagId, Long cursorValue, Long cursorId, int size) {
         int limit = Math.clamp(size, 1, 50);
         validateCursor(Sort.RECOMMENDED, cursorId, cursorValue);
+        boolean adminRead = isAdmin(userId);
 
         Slice<Posts> slice = postsRepository.findFeedRecommended(
                 PostStatus.PUBLISHED,
@@ -71,6 +76,7 @@ public class PostQueryServiceImpl implements PostQueryService {
                 tagId,
                 null,          // keyword 없음
                 userId,
+                adminRead,
                 PostAccessType.POINT_REQUIRED,
                 BoardCode.QUESTION,
                 cursorValue,
@@ -78,24 +84,25 @@ public class PostQueryServiceImpl implements PostQueryService {
                 PageRequest.of(0, limit)
         );
 
-        return mapToListResponse(userId, slice, Sort.RECOMMENDED);
+        return mapToListResponse(userId, adminRead, slice, Sort.RECOMMENDED);
     }
 
     @Override
     public PostListResponse getWaitingQuestions(Long userId,int size) {
+        boolean adminRead = isAdmin(userId);
         Slice<Posts> slice = postsRepository.findWaitingQuestions(
                 PostStatus.PUBLISHED,
                 BoardCode.QUESTION,
                 PageRequest.of(0, size)
         );
-        return mapToListResponse(userId, slice, Sort.LATEST);
+        return mapToListResponse(userId, adminRead, slice, Sort.LATEST);
     }
 
-    private PostListResponse mapToListResponse(Long userId, Slice<Posts> slice, Sort sort) {
+    private PostListResponse mapToListResponse(Long userId, boolean adminRead, Slice<Posts> slice, Sort sort) {
         List<Posts> posts = slice.getContent();
         if (posts.isEmpty()) return PostListResponse.of(List.of(), slice.hasNext(), null);
 
-        var res = postSummaryAssembler.assemble(userId, posts);
+        var res = postSummaryAssembler.assemble(userId, adminRead, posts);
 
         Long nextCursorValue = switch (sort) {
             case LATEST -> null;
@@ -146,5 +153,9 @@ public class PostQueryServiceImpl implements PostQueryService {
             case INFO -> BoardCode.INFO;
             case QUESTION -> BoardCode.QUESTION;
         };
+    }
+
+    private boolean isAdmin(Long userId) {
+        return userId != null && userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
     }
 }
