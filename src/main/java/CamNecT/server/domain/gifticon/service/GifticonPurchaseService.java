@@ -104,8 +104,8 @@ public class GifticonPurchaseService {
         }
 
         // 3) 포인트 차감 (PointService 사용)
-        // 멱등키(eventKey)는 clientRequestId 기반으로 잡습니다.
-        PointEvent event = PointEvent.gifticonPurchase(userId, purchase.getId(), req.clientRequestId());
+        // 구매 레코드가 clientRequestId 멱등성을 보장하므로 포인트 이벤트는 길이가 제한된 purchaseId를 사용합니다.
+        PointEvent event = PointEvent.gifticonPurchase(userId, purchase.getId());
         pointService.spendPoint(userId, (int) expected, event);
 
         return new GifticonPurchaseConfirmResponse(purchase.getId(), purchase.getRequestedAt());

@@ -31,6 +31,7 @@ import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.repository.UserTagMapRepository;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
 import CamNecT.server.domain.profile.components.majors.model.Majors;
@@ -193,7 +194,7 @@ public class ChatService {
         if (isAccepted) {
             request.accept();
             Long roomId = createChatRoom(request);
-            tryRewardCoffeeChatAcceptedPoint(request);
+            rewardCoffeeChatAcceptedPoint(request);
             publishAcceptedNotification(request, roomId);
         } else {
             request.reject();
@@ -765,20 +766,15 @@ public class ChatService {
         }
     }
 
-    private void tryRewardCoffeeChatAcceptedPoint(ChatRequest request) {
+    private void rewardCoffeeChatAcceptedPoint(ChatRequest request) {
         Long requestId = request.getId();
         Long targetUserId = (request.getRequester() == null) ? null : request.getRequester().getUserId();
 
         if (requestId == null || targetUserId == null) {
-            log.warn("[coffeechat] skip point reward. requestId={}, targetUserId={}", requestId, targetUserId);
-            return;
+            throw new CustomException(ErrorCode.INTERNAL_ERROR);
         }
-        try {
-            pointService.earnPoint(targetUserId, rewardCoffeeChatAccepted,
-                    PointEvent.coffeeChatAccepted(targetUserId, request.getId()));
-        } catch (Exception ex) {
-            log.warn("[coffeechat] point reward failed. requestId={}, userId={}", requestId, targetUserId, ex);
-        }
+        pointService.earnPoint(targetUserId, rewardCoffeeChatAccepted,
+                PointEvent.coffeeChatAccepted(targetUserId, requestId));
     }
 
     private List<Long> normalizeTagIds(List<Long> tagIds) {
