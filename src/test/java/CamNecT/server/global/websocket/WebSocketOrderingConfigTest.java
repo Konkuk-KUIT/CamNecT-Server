@@ -6,12 +6,13 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 class WebSocketOrderingConfigTest {
 
     @Test
-    void preservesInboundAndBrokerPublishOrder() {
+    void preservesBrokerPublishOrderWithoutDisablingStompErrorFrames() {
         WebSocketConfig config = new WebSocketConfig(
                 mock(ChatStompInterceptor.class),
                 mock(ChatStompErrorHandler.class)
@@ -23,6 +24,7 @@ class WebSocketOrderingConfigTest {
         config.registerStompEndpoints(endpointRegistry);
 
         verify(brokerRegistry).setPreservePublishOrder(true);
-        verify(endpointRegistry).setPreserveReceiveOrder(true);
+        verify(endpointRegistry).setErrorHandler(org.mockito.ArgumentMatchers.any());
+        verify(endpointRegistry, never()).setPreserveReceiveOrder(true);
     }
 }
