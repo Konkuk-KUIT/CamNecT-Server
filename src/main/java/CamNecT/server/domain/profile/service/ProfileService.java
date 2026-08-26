@@ -59,7 +59,8 @@ public class ProfileService {
 
     private static final Set<String> PROFILE_IMAGE_ALLOWED =
             Set.of("image/jpeg", "image/png", "image/webp");
-    
+
+    private static final String LEGACY_DEFAULT_PORTFOLIO_THUMB = "기본이미지";
     private static final String DEFAULT_PORTFOLIO_THUMB_KEY =
             "camnect/portfolio/default/camnect_default_portfolio_thumbnail.png";
 
@@ -106,7 +107,9 @@ public class ProfileService {
         int myPoints = isOwner ? pointService.getBalance(profileUserId) : 0;
 
         List<PortfolioPreviewResponse> portfolioPreviewResponses =
-                portfolioRepository.findPreviewsByUserId(profileUserId).stream()
+                (isOwner
+                        ? portfolioRepository.findPreviewsByUserId(profileUserId)
+                        : portfolioRepository.findPublicPreviewsByUserId(profileUserId)).stream()
                         .map(this::toCdnPreview)
                         .toList();
 
@@ -383,7 +386,9 @@ public class ProfileService {
     }
 
     private String portfolioThumbOrDefault(String key) {
-        String safeKey = StringUtils.hasText(key) ? key : DEFAULT_PORTFOLIO_THUMB_KEY;
+        String safeKey = StringUtils.hasText(key) && !LEGACY_DEFAULT_PORTFOLIO_THUMB.equals(key.trim())
+                ? key
+                : DEFAULT_PORTFOLIO_THUMB_KEY;
 
         try {
             String url = publicUrlIssuer.issueImagePublicUrl(safeKey);
