@@ -14,10 +14,12 @@ import CamNecT.server.domain.community.repository.Comments.AcceptedCommentsRepos
 import CamNecT.server.domain.community.repository.Comments.CommentLikesRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.*;
+import CamNecT.server.domain.report.service.UserReportPenaltyService;
 import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.global.point.model.PointEvent;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
@@ -80,6 +82,7 @@ public class PostServiceImpl implements PostService {
     private final PostAttachmentsService postAttachmentsService;
     private final CommunityPostAccessPolicy postAccessPolicy;
     private final PointService pointService;
+    private final UserReportPenaltyService userReportPenaltyService;
     private final PresignEngine presignEngine;
 
     private final ApplicationEventPublisher eventPublisher;
@@ -491,6 +494,14 @@ public class PostServiceImpl implements PostService {
         Users user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
 
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        }
+        if (user.getStatus() == UserStatus.SUSPENDED
+                || userReportPenaltyService.hasActiveRestriction(userId, user.getStatus())) {
+            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
+        }
+
         Posts post = postsRepository.findById(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
@@ -518,10 +529,7 @@ public class PostServiceImpl implements PostService {
 
         pointService.spendPoint(userId, questionViewCost, PointEvent.postAccess(userId, postId));
 
-        try {
-            postAccessRepository.save(PostAccess.of(user, post, questionViewCost));
-        } catch (DataIntegrityViolationException ignored) {
-        }
+        postAccessRepository.save(PostAccess.of(user, post, questionViewCost));
 
         int remaining = pointService.getBalance(userId);
         return new PurchasePostAccessResponse(postId, ContentAccessStatus.GRANTED, remaining, false);

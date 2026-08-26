@@ -7,6 +7,7 @@ import CamNecT.server.domain.community.dto.response.PurchasePostAccessResponse;
 import CamNecT.server.domain.community.model.Boards;
 import CamNecT.server.domain.community.model.Comments.AcceptedComments;
 import CamNecT.server.domain.community.model.Comments.Comments;
+import CamNecT.server.domain.community.model.Posts.PostAccess;
 import CamNecT.server.domain.community.model.Posts.PostStats;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.BoardCode;
@@ -19,11 +20,14 @@ import CamNecT.server.domain.community.repository.Comments.AcceptedCommentsRepos
 import CamNecT.server.domain.community.repository.Comments.CommentLikesRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.*;
+import CamNecT.server.domain.report.service.UserReportPenaltyService;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.global.notification.event.SimpleNotifiableEvent;
@@ -38,6 +42,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -72,6 +77,7 @@ class PostServiceImplTest {
     @Mock PostAttachmentsService postAttachmentsService;
     @Mock CommunityPostAccessPolicy postAccessPolicy;
     @Mock PointService pointService;
+    @Mock UserReportPenaltyService userReportPenaltyService;
     @Mock PresignEngine presignEngine;
     @Mock ApplicationEventPublisher eventPublisher;
     @Mock AuthorAssembler authorAssembler;
@@ -316,7 +322,7 @@ class PostServiceImplTest {
 
     @Test
     void purchaseBeforeAcceptanceIsGrantedWithoutSpendingPoints() {
-        Users viewer = Users.builder().userId(2L).build();
+        Users viewer = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
         Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
 
         when(userRepository.findByUserId(2L)).thenReturn(Optional.of(viewer));
@@ -335,7 +341,7 @@ class PostServiceImplTest {
 
     @Test
     void purchaseAfterAcceptanceSpendsOnceAndCreatesAccess() {
-        Users viewer = Users.builder().userId(2L).build();
+        Users viewer = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
         Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
 
         when(userRepository.findByUserId(2L)).thenReturn(Optional.of(viewer));
@@ -354,7 +360,7 @@ class PostServiceImplTest {
 
     @Test
     void acceptedAnswerAuthorIsGrantedWithoutPurchase() {
-        Users answerAuthor = Users.builder().userId(2L).build();
+        Users answerAuthor = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
         Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
 
         when(userRepository.findByUserId(2L)).thenReturn(Optional.of(answerAuthor));
@@ -370,6 +376,58 @@ class PostServiceImplTest {
         assertThat(result.isAlreadyOwned()).isTrue();
         verify(pointService, never()).spendPoint(anyLong(), anyInt(), any());
         verify(postAccessRepository, never()).save(any());
+    }
+
+    @Test
+    void withdrawnUserIsRejectedAfterLockBeforeAccessOrPointWork() {
+        Users withdrawn = Users.builder().userId(2L).status(UserStatus.WITHDRAWN).build();
+        when(userRepository.findByUserId(2L)).thenReturn(Optional.of(withdrawn));
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.purchasePostAccess(2L, 10L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_WITHDRAWN);
+        InOrder order = inOrder(userRepository);
+        order.verify(userRepository).lockUserRow(2L);
+        order.verify(userRepository).findByUserId(2L);
+        verifyNoInteractions(userReportPenaltyService, postsRepository, postAccessRepository,
+                postAccessPolicy, pointService);
+    }
+
+    @Test
+    void activelyRestrictedUserIsRejectedAfterLockBeforeAccessOrPointWork() {
+        Users active = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
+        when(userRepository.findByUserId(2L)).thenReturn(Optional.of(active));
+        when(userReportPenaltyService.hasActiveRestriction(2L, UserStatus.ACTIVE)).thenReturn(true);
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.purchasePostAccess(2L, 10L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        InOrder order = inOrder(userRepository, userReportPenaltyService);
+        order.verify(userRepository).lockUserRow(2L);
+        order.verify(userRepository).findByUserId(2L);
+        order.verify(userReportPenaltyService).hasActiveRestriction(2L, UserStatus.ACTIVE);
+        verifyNoInteractions(postsRepository, postAccessRepository, postAccessPolicy, pointService);
+    }
+
+    @Test
+    void accessSaveFailureIsNotSwallowed() {
+        Users viewer = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
+        Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
+        DataIntegrityViolationException failure = new DataIntegrityViolationException("unexpected constraint");
+
+        when(userRepository.findByUserId(2L)).thenReturn(Optional.of(viewer));
+        when(postsRepository.findById(10L)).thenReturn(Optional.of(post));
+        when(postAccessPolicy.isPaywallActive(post)).thenReturn(true);
+        when(postAccessRepository.save(any(PostAccess.class))).thenThrow(failure);
+
+        DataIntegrityViolationException thrown = assertThrows(DataIntegrityViolationException.class,
+                () -> service.purchasePostAccess(2L, 10L));
+
+        assertThat(thrown).isSameAs(failure);
+        verify(pointService).spendPoint(eq(2L), eq(100), any());
+        verify(pointService, never()).getBalance(anyLong());
     }
 
     private static Posts post(Long authorId, BoardCode boardCode, boolean anonymous, PostStatus status) {
