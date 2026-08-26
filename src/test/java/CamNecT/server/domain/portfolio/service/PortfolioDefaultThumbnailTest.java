@@ -8,6 +8,7 @@ import CamNecT.server.domain.portfolio.repository.PortfolioRepository;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.storage.repository.UploadTicketRepository;
 import CamNecT.server.global.storage.service.PresignEngine;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
@@ -43,6 +44,7 @@ class PortfolioDefaultThumbnailTest {
         publicUrlIssuer = mock(PublicUrlIssuer.class);
         portfolioService = new PortfolioService(
                 userRepository,
+                mock(AccountAccessGuard.class),
                 portfolioRepository,
                 mock(PortfolioAssetRepository.class),
                 mock(UploadTicketRepository.class),

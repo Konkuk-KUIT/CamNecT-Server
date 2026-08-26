@@ -16,6 +16,7 @@ import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
@@ -43,6 +44,7 @@ public class PortfolioService {
             "camnect/portfolio/default/camnect_default_portfolio_thumbnail.png";
 
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final PortfolioRepository portfolioRepository;
     private final PortfolioAssetRepository portfolioAssetRepository;
     private final UploadTicketRepository uploadTicketRepository;
@@ -145,8 +147,7 @@ public class PortfolioService {
     public PortfolioPreviewResponse create(Long userId, Long portfolioUserId, PortfolioRequest request) {
 
         if (!Objects.equals(userId, portfolioUserId)) throw new CustomException(UserErrorCode.PORTFOLIO_FORBIDDEN);
-        userRepository.lockUserRow(userId);
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         if (!StringUtils.hasText(request.thumbnailKey())) {
             throw new CustomException(UserErrorCode.PORTFOLIO_THUMBNAIL_REQUIRED);
@@ -198,7 +199,7 @@ public class PortfolioService {
 
     @Transactional
     public PortfolioPreviewResponse update(Long userId, Long portfolioUserId, Long portfolioId, PortfolioRequest request) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         PortfolioProject project = portfolioRepository.findByIdForUpdate(portfolioId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.PORTFOLIO_NOT_FOUND));
 
@@ -242,13 +243,13 @@ public class PortfolioService {
 
     @Transactional
     public void delete(Long userId, Long portfolioUserId, Long portfolioId) {
-        requireAuthenticatedUser(userId);
+        Users actor = accountAccessGuard.requireAccessibleForUpdate(userId);
         PortfolioProject project = portfolioRepository.findByIdForUpdate(portfolioId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.PORTFOLIO_NOT_FOUND));
 
         assertPathUserMatchesOwner(portfolioUserId, project);
 
-        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAdmin = actor.getRole() == UserRole.ADMIN;
         boolean isOwner = Objects.equals(project.getUserId(), userId);
 
         if (!isOwner && !isAdmin) throw new CustomException(UserErrorCode.PORTFOLIO_FORBIDDEN);
@@ -259,7 +260,7 @@ public class PortfolioService {
 
     @Transactional
     public boolean togglePublic(Long userId, Long portfolioUserId, Long portfolioId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         PortfolioProject project = portfolioRepository.findByIdForUpdate(portfolioId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.PORTFOLIO_NOT_FOUND));
 
@@ -273,7 +274,7 @@ public class PortfolioService {
 
     @Transactional
     public boolean toggleFavorite(Long userId, Long portfolioUserId, Long portfolioId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         PortfolioProject project = portfolioRepository.findByIdForUpdate(portfolioId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.PORTFOLIO_NOT_FOUND));
 

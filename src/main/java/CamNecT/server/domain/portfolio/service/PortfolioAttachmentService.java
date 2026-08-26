@@ -4,11 +4,8 @@ import CamNecT.server.domain.portfolio.model.PortfolioAsset;
 import CamNecT.server.domain.portfolio.model.PortfolioProject;
 import CamNecT.server.domain.portfolio.model.props.PortfolioAssetProps;
 import CamNecT.server.domain.portfolio.model.props.PortfolioThumbnailProps;
-import CamNecT.server.domain.users.repository.UserRepository;
-import CamNecT.server.domain.users.model.UserStatus;
-import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
-import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.StorageErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import CamNecT.server.global.storage.service.GlobalPresignMethods;
@@ -37,7 +34,7 @@ public class PortfolioAttachmentService {
     private static final String DEFAULT_THUMB = "기본이미지";
     private static final Set<String> THUMB_ALLOWED = Set.of("image/jpeg", "image/png", "image/webp");
 
-    private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
 
     private final PresignEngine presignEngine;
     private final UploadTicketRepository ticketRepo;
@@ -54,7 +51,7 @@ public class PortfolioAttachmentService {
     @Transactional
     public PresignUploadResponse presignThumbnail(Long userId, Long portfolioUserId, PresignUploadRequest req) {
         validateOwner(userId, portfolioUserId);
-        lockAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         String ct = globalPresignMethods.normalize(req.contentType());
         if (req.size() == null || req.size() <= 0) throw new CustomException(StorageErrorCode.EMPTY_FILE_NOT_ALLOWED);
@@ -88,7 +85,7 @@ public class PortfolioAttachmentService {
         if (items.isEmpty()) throw new CustomException(StorageErrorCode.EMPTY_FILE_NOT_ALLOWED);
         if (items.size() > assetProps.maxFiles()) throw new CustomException(StorageErrorCode.UPLOAD_TICKET_LIMIT_EXCEEDED);
 
-        lockAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         String prefix = "portfolio/user-" + userId + "/assets";
 
@@ -275,16 +272,6 @@ public class PortfolioAttachmentService {
         if (userId == null || !Objects.equals(userId, portfolioUserId)) {
             throw new CustomException(UserErrorCode.PORTFOLIO_FORBIDDEN);
         }
-    }
-
-    private Users lockAuthenticatedUser(Long userId) {
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-        if (user.getStatus() == UserStatus.SUSPENDED) {
-            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
-        }
-        return user;
     }
 
     private LinkedHashSet<String> distinctKeys(List<String> keys, String thumbnailKey) {
