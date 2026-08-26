@@ -11,6 +11,7 @@ import CamNecT.server.domain.activity.repository.recruitment.TeamRecruitmentRepo
 import CamNecT.server.domain.community.service.AuthorAssembler;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
 import CamNecT.server.global.storage.repository.UploadTicketRepository;
@@ -44,6 +45,7 @@ class ActivityServiceCategoryBoundaryTest {
     @Mock TagRepository tagRepository;
     @Mock TeamRecruitmentRepository teamRecruitmentRepository;
     @Mock UserRepository userRepository;
+    @Mock AccountAccessGuard accountAccessGuard;
     @Mock AuthorAssembler authorAssembler;
     @Mock UploadTicketRepository uploadTicketRepository;
     @Mock PresignEngine presignEngine;
@@ -79,6 +81,7 @@ class ActivityServiceCategoryBoundaryTest {
     void updateRejectsAdminOnlyExistingActivitiesEvenWhenRequestedCategoryIsGeneral(ActivityCategory existingCategory) {
         Users owner = Users.builder().userId(1L).build();
         ExternalActivity activity = activity(existingCategory, owner);
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(owner);
         when(activityRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(activity));
 
         CustomException exception = assertThrows(
@@ -97,6 +100,7 @@ class ActivityServiceCategoryBoundaryTest {
     void updateAllowsChangingBetweenGeneralCategories() {
         Users owner = Users.builder().userId(1L).build();
         ExternalActivity activity = activity(ActivityCategory.STUDY, owner);
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(owner);
         when(activityRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(activity));
 
         service.update(1L, 10L, request(ActivityCategory.CLUB));
@@ -106,6 +110,8 @@ class ActivityServiceCategoryBoundaryTest {
 
     @Test
     void createRejectsUnknownOrInactiveTagsBeforePersistence() {
+        Users owner = Users.builder().userId(1L).build();
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(owner);
         when(tagRepository.findExistingActiveIds(List.of(10L, 20L))).thenReturn(List.of(10L));
         ActivityRequest request = new ActivityRequest(
                 ActivityCategory.STUDY,
@@ -120,6 +126,7 @@ class ActivityServiceCategoryBoundaryTest {
 
         assertThat(exception.getErrorCode()).isEqualTo(ActivityErrorCode.INVALID_TAG_IDS);
         verifyNoInteractions(userRepository, activityRepository, presignEngine);
+        verify(accountAccessGuard).requireAccessibleForUpdate(1L);
     }
 
     private ActivityRequest request(ActivityCategory category) {

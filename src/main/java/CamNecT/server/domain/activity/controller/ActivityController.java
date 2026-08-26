@@ -154,9 +154,10 @@ public class ActivityController {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PatchMapping("/admin/{activityId}/close")
     public ApiResponse<String> closeActivityAdmin(
+            @UserId Long adminId,
             @PathVariable Long activityId
     ){
-        activityService.closeActivityAdmin(activityId);
+        activityService.closeActivityAdmin(adminId, activityId);
         return ApiResponse.success("대외활동이 성공적으로 모집 완료되었습니다.");
     }
 

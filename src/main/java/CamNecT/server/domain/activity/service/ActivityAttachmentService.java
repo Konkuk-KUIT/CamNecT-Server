@@ -2,7 +2,7 @@ package CamNecT.server.domain.activity.service;
 
 import CamNecT.server.domain.activity.model.props.ActivityAttachmentProps;
 import CamNecT.server.domain.activity.model.props.ActivityThumbnailProps;
-import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.StorageErrorCode;
 import CamNecT.server.global.storage.service.GlobalPresignMethods;
@@ -31,7 +31,7 @@ public class ActivityAttachmentService {
 
     protected static final Set<String> THUMB_ALLOWED = Set.of("image/jpeg","image/png","image/webp");
 
-    private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final PresignEngine presignEngine;
     private final UploadTicketRepository ticketRepo;
     private final GlobalPresignMethods globalPresignMethods;
@@ -41,7 +41,7 @@ public class ActivityAttachmentService {
 
     @Transactional
     public PresignUploadResponse presignThumbnail(Long userId, PresignUploadRequest req) {
-        userRepository.lockUserRow(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         String ct = globalPresignMethods.normalize(req.contentType());
         if (!StringUtils.hasText(ct)) throw new CustomException(StorageErrorCode.UNSUPPORTED_CONTENT_TYPE);
@@ -71,7 +71,7 @@ public class ActivityAttachmentService {
         if (items.isEmpty()) throw new CustomException(StorageErrorCode.EMPTY_FILE_NOT_ALLOWED);
         if (items.size() > attachmentProps.maxFiles()) throw new CustomException(StorageErrorCode.UPLOAD_TICKET_LIMIT_EXCEEDED);
 
-        userRepository.lockUserRow(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         LocalDateTime now = LocalDateTime.now();
         ticketRepo.bulkExpirePendingByUserPurpose(userId, UploadPurpose.ACTIVITY_ATTACHMENT, now);
