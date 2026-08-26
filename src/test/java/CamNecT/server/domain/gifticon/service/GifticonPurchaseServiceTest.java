@@ -5,9 +5,12 @@ import CamNecT.server.domain.gifticon.model.GifticonProduct;
 import CamNecT.server.domain.gifticon.model.GifticonPurchase;
 import CamNecT.server.domain.gifticon.repository.GifticonProductRepository;
 import CamNecT.server.domain.gifticon.repository.GifticonPurchaseRepository;
+import CamNecT.server.domain.report.service.UserReportPenaltyService;
+import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.GifticonErrorCode;
 import CamNecT.server.global.point.service.PointService;
 import org.junit.jupiter.api.Test;
@@ -24,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +38,7 @@ class GifticonPurchaseServiceTest {
     @Mock GifticonPurchaseRepository purchaseRepository;
     @Mock UserRepository userRepository;
     @Mock PointService pointService;
+    @Mock UserReportPenaltyService userReportPenaltyService;
 
     @InjectMocks GifticonPurchaseService service;
 
@@ -58,6 +63,7 @@ class GifticonPurchaseServiceTest {
                 org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.any()
         );
+        verifyNoInteractions(userReportPenaltyService);
     }
 
     @Test
@@ -84,6 +90,43 @@ class GifticonPurchaseServiceTest {
                 org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.any()
         );
+    }
+
+    @Test
+    void withdrawnUserIsRejectedAfterThePurchaseLock() {
+        Long userId = 1L;
+        Users withdrawn = mock(Users.class);
+        when(withdrawn.getStatus()).thenReturn(UserStatus.WITHDRAWN);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(withdrawn));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.confirm(userId, request(10L, 1, 1000, "request-withdrawn"))
+        );
+
+        assertSame(AuthErrorCode.USER_WITHDRAWN, exception.getErrorCode());
+        verify(userRepository).lockUserRow(userId);
+        verify(purchaseRepository).findByUser_UserIdAndClientRequestId(userId, "request-withdrawn");
+        verifyNoInteractions(productRepository, pointService, userReportPenaltyService);
+    }
+
+    @Test
+    void currentReportRestrictionBlocksANewPurchaseAfterThePurchaseLock() {
+        Long userId = 1L;
+        Users active = mock(Users.class);
+        when(active.getStatus()).thenReturn(UserStatus.ACTIVE);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(active));
+        when(userReportPenaltyService.hasActiveRestriction(userId, UserStatus.ACTIVE)).thenReturn(true);
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.confirm(userId, request(10L, 1, 1000, "request-suspended"))
+        );
+
+        assertSame(AuthErrorCode.USER_SUSPENDED, exception.getErrorCode());
+        verify(userRepository).lockUserRow(userId);
+        verify(purchaseRepository).findByUser_UserIdAndClientRequestId(userId, "request-suspended");
+        verifyNoInteractions(productRepository, pointService);
     }
 
     private void stubExisting(Long userId, String requestId, GifticonPurchase existing) {
