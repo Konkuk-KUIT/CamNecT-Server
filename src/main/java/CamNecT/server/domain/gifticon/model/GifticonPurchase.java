@@ -11,7 +11,10 @@ import java.time.LocalDateTime;
         name = "gifticon_purchases",
         uniqueConstraints = @UniqueConstraint(name = "uk_gifticon_purchase_client_req", columnNames = {"user_id", "client_request_id"}),
         indexes = {
-                @Index(name = "idx_gifticon_purchase_export", columnList = "export_batch_id"),
+                @Index(
+                        name = "idx_gifticon_purchase_export_queue",
+                        columnList = "export_batch_id,requested_at,purchase_id"
+                ),
                 @Index(name = "idx_gifticon_purchase_user", columnList = "user_id")
         }
 )

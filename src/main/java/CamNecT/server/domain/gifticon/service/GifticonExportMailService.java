@@ -14,8 +14,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 
 @Slf4j
@@ -37,21 +35,18 @@ public class GifticonExportMailService {
     @Value("${app.gifticon.export-mail.subject:[CamNecT] 기프티콘 구매요청 엑셀}")
     private String subject;
 
-    @Value("${app.gifticon.export-mail.delete-after-send:true}")
-    private boolean deleteAfterSend;
-
-    public void sendExportExcel(GifticonExportBatch batch) {
-        if (!enabled) return;
+    public GifticonExportMailResult sendExportExcel(GifticonExportBatch batch) {
+        if (!enabled) {
+            return GifticonExportMailResult.failed("MAIL_DISABLED");
+        }
 
         if (!StringUtils.hasText(to)) {
-            log.warn("[gifticon-mail] to is empty. skip");
-            return;
+            return GifticonExportMailResult.failed("RECIPIENT_EMPTY");
         }
 
         File file = new File(batch.getFilePath());
-        if (!file.exists()) {
-            log.error("[gifticon-mail] file not found path={}", batch.getFilePath());
-            return;
+        if (!file.isFile()) {
+            return GifticonExportMailResult.failed("FILE_MISSING: " + batch.getFilePath());
         }
 
         try {
@@ -72,27 +67,29 @@ public class GifticonExportMailService {
             String exportedAt = batch.getExportedAt()
                     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
-            helper.setSubject(subject + " (" + exportedAt + ")");
+            helper.setSubject(subject + " [batchId=" + batch.getId() + "] (" + exportedAt + ")");
 
             String text = """
                     기프티콘 구매요청 엑셀 파일을 전달드립니다.
 
                     - Export 시각: %s
+                    - Batch ID: %d
                     - 건수: %d
                     - 파일명: %s
-                    """.formatted(exportedAt, batch.getItemCount(), batch.getFileName());
+                    """.formatted(exportedAt, batch.getId(), batch.getItemCount(), batch.getFileName());
 
             String html = """
                     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
                       <h2>기프티콘 구매요청 엑셀</h2>
                       <ul>
                         <li>Export 시각: <b>%s</b></li>
+                        <li>Batch ID: <b>%d</b></li>
                         <li>건수: <b>%d</b></li>
                         <li>파일명: <b>%s</b></li>
                       </ul>
                       <p>첨부파일을 확인해 주세요.</p>
                     </div>
-                    """.formatted(exportedAt, batch.getItemCount(), batch.getFileName());
+                    """.formatted(exportedAt, batch.getId(), batch.getItemCount(), batch.getFileName());
 
             helper.setText(text, html);
 
@@ -101,21 +98,21 @@ public class GifticonExportMailService {
             log.info("[gifticon-mail] send export excel to={} file={}", to, batch.getFileName());
             mailSender.send(mimeMessage);
 
-            // 메일 보낸 이후에 삭제
-            log.info("[gifticon-mail] sent to={} file={}", to, batch.getFileName());
-
-            if (deleteAfterSend) {
-                try {
-                    Files.deleteIfExists(Path.of(batch.getFilePath()));
-                    log.info("[gifticon-mail] deleted export file path={}", batch.getFilePath());
-                } catch (Exception delEx) {
-                    log.warn("[gifticon-mail] delete failed path={}", batch.getFilePath(), delEx);
-                }
-            }
+            log.info("[gifticon-mail] submitted to={} batchId={} file={}",
+                    to, batch.getId(), batch.getFileName());
+            return GifticonExportMailResult.delivered();
 
         } catch (MessagingException | MailException e) {
-            // 메일 실패해도 export 자체는 이미 끝난 상태여야 하므로 예외는 던지지 않는 편이 운영상 안전합니다.
-            log.error("[gifticon-mail] send failed to={}", to, e);
+            log.error("[gifticon-mail] submit failed to={} batchId={}", to, batch.getId(), e);
+            return GifticonExportMailResult.failed(describe(e));
         }
+    }
+
+    private String describe(Exception exception) {
+        String message = exception.getMessage();
+        if (!StringUtils.hasText(message)) {
+            return exception.getClass().getSimpleName();
+        }
+        return exception.getClass().getSimpleName() + ": " + message;
     }
 }
