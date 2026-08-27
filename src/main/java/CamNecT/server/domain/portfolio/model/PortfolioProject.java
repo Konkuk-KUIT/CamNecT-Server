@@ -29,6 +29,9 @@ public class PortfolioProject {
     @Column(nullable = false, length = 100)
     private String title;
 
+    @Column(length = 20)
+    private String subtitle;
+
     @Column(name = "thumbnail_url", length = 500)
     @Builder.Default
     private String thumbnailUrl = "기본이미지";
@@ -78,10 +81,11 @@ public class PortfolioProject {
         this.thumbnailUrl = url;
     }
 
-    public void updateInfo(String title, String description, String review,
+    public void updateInfo(String title, String subtitle, String description, String review,
                            LocalDate startDate, LocalDate endDate,
                            String projectRole, List<String> techStack) {
         this.title = title;
+        this.subtitle = subtitle;
         this.description = description;
         this.review = review;
         this.startDate = startDate;

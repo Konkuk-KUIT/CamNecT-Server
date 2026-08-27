@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +45,7 @@ public class EmailVerificationService {
 
     private final JwtUtil jwtUtil;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final TransactionTemplate transactionTemplate;
 
     @Value("${app.auth.email-verification.expiration-minutes:30}")
     private long expirationMinutes;
@@ -114,33 +116,39 @@ public class EmailVerificationService {
         return expirationMinutes;
     }
 
-    // 인증 실패도 attemptCount는 커밋되어야 하므로 CustomException에는 롤백하지 않는다.
-    @Transactional(noRollbackFor = CustomException.class)
     public VerifyPasswordResetEmailResponse verifyPasswordResetEmail(VerifyPasswordResetEmailRequest req) {
-        Users user = userRepository.findByEmail(req.email())
-                .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
+        // 실패 횟수는 커밋하고, API 예외는 트랜잭션 종료 후 발생시킨다.
+        VerificationTransactionResult<VerifyPasswordResetEmailResponse> result = transactionTemplate.execute(status -> {
+            Users user = userRepository.findByEmail(req.email())
+                    .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
 
-        validateRecoverableUser(user);
+            validateRecoverableUser(user);
 
-        EmailVerificationToken token = tokenRepository.findFirstByEmailAndUsedAtIsNullOrderByIdDesc(req.email())
-                .orElseThrow(() -> new CustomException(VerificationErrorCode.NO_ACTIVE_CODE));
+            EmailVerificationToken token = tokenRepository.findFirstByEmailAndUsedAtIsNullOrderByIdDesc(req.email())
+                    .orElseThrow(() -> new CustomException(VerificationErrorCode.NO_ACTIVE_CODE));
 
-        if (token.isExpired()) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
-        if (token.isLocked()) throw new CustomException(VerificationErrorCode.TOO_MANY_ATTEMPTS);
-
-        if (!token.matchesCode(req.code())) {
-            token.increaseAttempt();
+            if (token.isExpired()) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
             if (token.isLocked()) throw new CustomException(VerificationErrorCode.TOO_MANY_ATTEMPTS);
-            throw new CustomException(VerificationErrorCode.INVALID_CODE);
-        }
 
-        token.markUsed();
-        token.linkUser(user);
+            if (!token.matchesCode(req.code())) {
+                token.increaseAttempt();
+                return VerificationTransactionResult.failure(token.isLocked()
+                        ? VerificationErrorCode.TOO_MANY_ATTEMPTS
+                        : VerificationErrorCode.INVALID_CODE);
+            }
 
-        String resetToken = jwtUtil.generatePasswordResetToken(user.getUserId(), user.getRole());
-        long expiresMinutes = jwtUtil.getVerificationTokenExpirationMs() / 60000L;
+            token.markUsed();
+            token.linkUser(user);
 
-        return new VerifyPasswordResetEmailResponse(resetToken, expiresMinutes);
+            String resetToken = jwtUtil.generatePasswordResetToken(user.getUserId(), user.getRole());
+            long expiresMinutes = jwtUtil.getVerificationTokenExpirationMs() / 60000L;
+
+            return VerificationTransactionResult.success(
+                    new VerifyPasswordResetEmailResponse(resetToken, expiresMinutes)
+            );
+        });
+
+        return unwrap(result);
     }
 
     @Transactional
@@ -157,37 +165,66 @@ public class EmailVerificationService {
         passwordService.resetPasswordByUserId(userId, req.newPassword());
     }
 
-    @Transactional(noRollbackFor = CustomException.class)
     public VerifySignupEmailResponse verifySignupAndCreateUser(VerifySignupEmailRequest req) {
+        // 실패 횟수는 커밋하고, 회원가입 예외는 정상 롤백되도록 트랜잭션 밖으로 전달한다.
+        VerificationTransactionResult<VerifySignupEmailResponse> result = transactionTemplate.execute(status -> {
+            // 인증 성공 후에만 사용자를 생성하므로, 같은 이메일의 사용자가 있으면 이미 가입 완료된 상태다.
+            Users existing = userRepository.findByEmail(req.email()).orElse(null);
+            if (existing != null) {
+                return VerificationTransactionResult.success(
+                        new VerifySignupEmailResponse(existing.getUserId(), true, null, 0L)
+                );
+            }
 
-        // 인증 성공 후에만 사용자를 생성하므로, 같은 이메일의 사용자가 있으면 이미 가입 완료된 상태다.
-        Users existing = userRepository.findByEmail(req.email()).orElse(null);
-        if (existing != null) {
-            return new VerifySignupEmailResponse(existing.getUserId(), true, null, 0L);
-        }
+            EmailVerificationToken token = tokenRepository.findFirstByEmailAndUsedAtIsNullOrderByIdDesc(req.email())
+                    .orElseThrow(() -> new CustomException(VerificationErrorCode.NO_ACTIVE_CODE));
 
-        EmailVerificationToken token = tokenRepository.findFirstByEmailAndUsedAtIsNullOrderByIdDesc(req.email())
-                .orElseThrow(() -> new CustomException(VerificationErrorCode.NO_ACTIVE_CODE));
-
-        if (token.isExpired()) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
-        if (token.isLocked()) throw new CustomException(VerificationErrorCode.TOO_MANY_ATTEMPTS);
-
-        if (!token.matchesCode(req.code())) {
-            token.increaseAttempt();
+            if (token.isExpired()) throw new CustomException(VerificationErrorCode.CODE_EXPIRED_OR_USED);
             if (token.isLocked()) throw new CustomException(VerificationErrorCode.TOO_MANY_ATTEMPTS);
-            throw new CustomException(VerificationErrorCode.INVALID_CODE);
+
+            if (!token.matchesCode(req.code())) {
+                token.increaseAttempt();
+                return VerificationTransactionResult.failure(token.isLocked()
+                        ? VerificationErrorCode.TOO_MANY_ATTEMPTS
+                        : VerificationErrorCode.INVALID_CODE);
+            }
+
+            Users user = signupService.signupVerifiedUser(req);
+
+            // 토큰 사용 처리 + user 연결
+            token.markUsed();
+            token.linkUser(user);
+
+            // 임시 토큰 발급(기존 로직 유지)
+            String verificationToken = jwtUtil.generateVerificationToken(user.getUserId(), user.getRole());
+            long expiresMinutes = jwtUtil.getVerificationTokenExpirationMs() / 60000L;
+
+            return VerificationTransactionResult.success(
+                    new VerifySignupEmailResponse(user.getUserId(), false, verificationToken, expiresMinutes)
+            );
+        });
+
+        return unwrap(result);
+    }
+
+    private <T> T unwrap(VerificationTransactionResult<T> result) {
+        if (result == null) {
+            throw new IllegalStateException("Email verification transaction returned no result");
         }
-        Users user = signupService.signupVerifiedUser(req);
+        if (result.errorCode() != null) {
+            throw new CustomException(result.errorCode());
+        }
+        return result.value();
+    }
 
-        // 토큰 사용 처리 + user 연결
-        token.markUsed();
-        token.linkUser(user);
+    private record VerificationTransactionResult<T>(T value, VerificationErrorCode errorCode) {
+        private static <T> VerificationTransactionResult<T> success(T value) {
+            return new VerificationTransactionResult<>(value, null);
+        }
 
-        // 임시 토큰 발급(기존 로직 유지)
-        String verificationToken = jwtUtil.generateVerificationToken(user.getUserId(), user.getRole());
-        long expiresMinutes = jwtUtil.getVerificationTokenExpirationMs() / 60000L;
-
-        return new VerifySignupEmailResponse(user.getUserId(), false, verificationToken, expiresMinutes);
+        private static <T> VerificationTransactionResult<T> failure(VerificationErrorCode errorCode) {
+            return new VerificationTransactionResult<>(null, errorCode);
+        }
     }
 
     private String normalize(String value) {

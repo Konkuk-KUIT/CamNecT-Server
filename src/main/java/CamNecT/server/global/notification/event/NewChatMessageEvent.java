@@ -24,8 +24,9 @@ public record NewChatMessageEvent(
         if (content == null) return "사진/동영상";
 
         int limit = 40; // 최대 표시 글자수 제한
-        if (content.length() > limit) {
-            return content.substring(0, limit) + "...";
+        if (content.codePointCount(0, content.length()) > limit) {
+            int endIndex = content.offsetByCodePoints(0, limit);
+            return content.substring(0, endIndex) + "...";
         }
         return content;
     }

@@ -15,6 +15,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -65,6 +67,30 @@ public class AdminAnnouncementService {
         if (request.targetType() == USERS &&
                 (request.targetUserIds() == null || request.targetUserIds().isEmpty())) {
             throw new CustomException(ErrorCode.BAD_REQUEST);
+        }
+
+        String link = request.link();
+        if (link != null && !link.isBlank() && !isSafeInternalPath(link.trim())) {
+            throw new CustomException(ErrorCode.BAD_REQUEST);
+        }
+    }
+
+    private boolean isSafeInternalPath(String link) {
+        try {
+            URI uri = new URI(link);
+            String rawPath = uri.getRawPath();
+            String decodedPath = uri.getPath();
+
+            return !uri.isAbsolute()
+                    && uri.getRawAuthority() == null
+                    && rawPath != null
+                    && rawPath.startsWith("/")
+                    && !rawPath.startsWith("//")
+                    && decodedPath != null
+                    && !decodedPath.startsWith("//")
+                    && !decodedPath.contains("\\");
+        } catch (URISyntaxException ex) {
+            return false;
         }
     }
 

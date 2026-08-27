@@ -20,14 +20,14 @@ public interface PortfolioRepository extends JpaRepository<PortfolioProject, Lon
     @Query("select p from PortfolioProject p where p.portfolioId = :portfolioId")
     Optional<PortfolioProject> findByIdForUpdate(@Param("portfolioId") Long portfolioId);
 
-    @Query("SELECT new CamNecT.server.domain.portfolio.dto.response.PortfolioPreviewResponse(p.portfolioId, p.title, p.thumbnailUrl, p.isPublic, p.isFavorite, p.updatedAt) " +
+    @Query("SELECT new CamNecT.server.domain.portfolio.dto.response.PortfolioPreviewResponse(p.portfolioId, p.title, p.subtitle, p.thumbnailUrl, p.isPublic, p.isFavorite, p.updatedAt) " +
             "FROM PortfolioProject p " +
             "WHERE p.userId = :userId " +
             "ORDER BY p.createdAt DESC")
     List<PortfolioPreviewResponse> findPreviewsByUserId(@Param("userId") Long userId);
 
     @Query("""
-    SELECT new CamNecT.server.domain.portfolio.dto.response.PortfolioPreviewResponse(p.portfolioId, p.title, p.thumbnailUrl, p.isPublic, p.isFavorite, p.updatedAt)
+    SELECT new CamNecT.server.domain.portfolio.dto.response.PortfolioPreviewResponse(p.portfolioId, p.title, p.subtitle, p.thumbnailUrl, p.isPublic, p.isFavorite, p.updatedAt)
     FROM PortfolioProject p
     WHERE p.userId = :userId AND p.isPublic = true
     ORDER BY p.createdAt DESC

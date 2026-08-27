@@ -4,6 +4,7 @@ import CamNecT.server.domain.chat.dto.message.ChatMessageResponseDto;
 import CamNecT.server.domain.chat.dto.message.ChatReadEvent;
 import CamNecT.server.domain.chat.event.ChatMessageCommittedEvent;
 import CamNecT.server.domain.chat.event.ChatReadCommittedEvent;
+import CamNecT.server.domain.chat.event.ChatRoomClosedCommittedEvent;
 import CamNecT.server.domain.chat.repository.ChatRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,6 +61,17 @@ class ChatRealtimeDeliveryServiceTest {
         verify(messagingTemplate).convertAndSend("/sub/chat/room/99", readEvent);
         verify(messagingTemplate).convertAndSend(eq("/sub/user/2/rooms"), any(Object.class));
         verify(chatRepository).countVisibleUnreadByUserId(2L);
+    }
+
+    @Test
+    void roomClosedDeliveryUsesRoomSubscriptionAndExactPayload() {
+        ChatRoomClosedCommittedEvent event = new ChatRoomClosedCommittedEvent(99L);
+
+        deliveryService.deliverRoomClosed(event);
+
+        verify(messagingTemplate).convertAndSend(
+                "/sub/chat/room/99", event.closedEvent());
+        verifyNoInteractions(chatRepository);
     }
 
     private ChatMessageCommittedEvent messageEvent() {

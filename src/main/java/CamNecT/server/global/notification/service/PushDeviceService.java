@@ -23,6 +23,9 @@ public class PushDeviceService {
 
     @Transactional
     public RegisterResult register(Long userId, RegisterPushTokenRequest req) {
+        String deviceId = req.deviceId().trim();
+        String token = req.token().trim();
+
         userRepository.lockUserRow(userId);
         var user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
@@ -31,18 +34,18 @@ public class PushDeviceService {
         }
 
         // 동일 FCM 토큰이 이전 로그인 사용자의 활성 디바이스로 남아 잘못 전송되는 것을 방지한다.
-        pushDeviceRepository.disableTokenForOtherUsers(req.token(), userId);
+        pushDeviceRepository.disableTokenForOtherUsers(token, userId);
 
-        PushDevice device = pushDeviceRepository.findByUserIdAndDeviceId(userId, req.deviceId())
+        PushDevice device = pushDeviceRepository.findByUserIdAndDeviceId(userId, deviceId)
                 .map(existing -> {
-                    existing.updateToken(req.platform(), req.token());
+                    existing.updateToken(req.platform(), token);
                     return existing;
                 })
                 .orElseGet(() -> PushDevice.builder()
                         .userId(userId)
-                        .deviceId(req.deviceId())
+                        .deviceId(deviceId)
                         .platform(req.platform())
-                        .fcmToken(req.token())
+                        .fcmToken(token)
                         .enabled(true)
                         .build());
 
@@ -67,6 +70,16 @@ public class PushDeviceService {
         List<PushDevice> devices = pushDeviceRepository.findAllByFcmTokenIn(invalidTokens);
         for (PushDevice d : devices) d.disable();
         pushDeviceRepository.saveAll(devices);
+    }
+
+    @Transactional
+    public int disableAllForUser(Long userId) {
+        return pushDeviceRepository.disableAllByUserId(userId);
+    }
+
+    @Transactional
+    public int disableForUserAndDevice(Long userId, String deviceId) {
+        return pushDeviceRepository.disableByUserIdAndDeviceId(userId, deviceId.trim());
     }
 
     public record RegisterResult(Long pushDeviceId, boolean created) {}

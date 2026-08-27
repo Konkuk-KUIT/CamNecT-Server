@@ -1,13 +1,11 @@
 package CamNecT.server.domain.community.service;
 
 
-import CamNecT.server.domain.community.dto.AuthorDto;
 import CamNecT.server.domain.community.dto.request.CreateCommentRequest;
 import CamNecT.server.domain.community.dto.request.UpdateCommentRequest;
+import CamNecT.server.domain.community.dto.response.CommentListResponse;
 import CamNecT.server.domain.community.dto.response.CreateCommentResponse;
 import CamNecT.server.domain.community.dto.response.ToggleCommentLikeResponse;
-
-import java.util.List;
 
 public interface CommentService {
 
@@ -19,14 +17,5 @@ public interface CommentService {
 
     ToggleCommentLikeResponse toggleLike(Long userId, Long commentId);
 
-    List<CommentRow> list(Long postId, int size);
-
-    record CommentRow(
-            Long commentId,
-            Long userId,
-            Long parentCommentId,
-            String content,
-            long likeCount,
-            AuthorDto author
-    ) {}
+    CommentListResponse list(Long userId, Long postId, Long cursorId, int size);
 }

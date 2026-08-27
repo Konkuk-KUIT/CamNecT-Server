@@ -1,0 +1,349 @@
+package CamNecT.server.domain.report.service;
+
+import CamNecT.server.domain.activity.service.ActivityService;
+import CamNecT.server.domain.activity.service.RecruitmentService;
+import CamNecT.server.domain.community.service.CommentService;
+import CamNecT.server.domain.community.service.PostService;
+import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
+import CamNecT.server.domain.report.dto.request.ReportProcessRequest;
+import CamNecT.server.domain.report.model.*;
+import CamNecT.server.domain.report.repository.ReportCaseRepository;
+import CamNecT.server.domain.report.repository.ReportEvidenceRepository;
+import CamNecT.server.domain.report.repository.ReportRepository;
+import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
+import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.model.UserStatus;
+import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
+import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
+import CamNecT.server.global.storage.service.PresignEngine;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class ReportServiceTest {
+
+    @Mock ReportRepository reportRepository;
+    @Mock ReportEvidenceRepository evidenceRepository;
+    @Mock ReportCaseRepository reportCaseRepository;
+    @Mock UserReportPenaltyRepository penaltyRepository;
+    @Mock UserRepository userRepository;
+    @Mock PresignEngine presignEngine;
+    @Mock ReportAttachmentService reportAttachmentService;
+    @Mock PostService postService;
+    @Mock CommentService commentService;
+    @Mock ActivityService activityService;
+    @Mock RecruitmentService recruitmentService;
+    @Mock UserReportPenaltyService userReportPenaltyService;
+    @Mock ReportTargetResolver reportTargetResolver;
+
+    private ReportService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new ReportService(
+                reportRepository,
+                evidenceRepository,
+                reportCaseRepository,
+                penaltyRepository,
+                userRepository,
+                presignEngine,
+                reportAttachmentService,
+                postService,
+                commentService,
+                activityService,
+                recruitmentService,
+                userReportPenaltyService,
+                reportTargetResolver,
+                Clock.fixed(Instant.parse("2026-07-28T03:00:00Z"), ZoneId.of("Asia/Seoul"))
+        );
+    }
+
+    @Test
+    void sameReporterCannotSubmitTwiceToSameCase() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        ReportCreateRequest request = request(2L, 100L, TargetType.COMMUNITY);
+
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(reportCaseRepository.findByTargetKeyAndStatus("COMMUNITY:100", ReportStatus.RECEIVED)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.existsByReporterIdAndReportCase_CaseId(1L, 10L)).thenReturn(true);
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.createReport(1L, request)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_DUPLICATE);
+        verify(reportRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void differentReportersAreAggregatedIntoExistingTargetCase() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        reportCase.addReport();
+        ReportCreateRequest request = request(2L, 100L, TargetType.COMMUNITY);
+
+        when(reportTargetResolver.resolve(3L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(reportCaseRepository.findByTargetKeyAndStatus("COMMUNITY:100", ReportStatus.RECEIVED)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.saveAndFlush(any(Report.class))).thenAnswer(invocation -> {
+            Report saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "reportId", 101L);
+            return saved;
+        });
+
+        Long reportId = service.createReport(3L, request);
+
+        assertThat(reportId).isEqualTo(101L);
+        assertThat(reportCase.getReportCount()).isEqualTo(2L);
+        verify(reportCaseRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void resolvedCaseRequiresAdministratorCategory() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.processReport(
+                        9L,
+                        10L,
+                        new ReportProcessRequest(ReportStatus.RESOLVED, null, null)
+                )
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_CATEGORY_REQUIRED);
+        verify(reportCaseRepository, never()).findByIdForUpdate(anyLong());
+    }
+
+    @Test
+    void alreadyProcessedCaseCannotApplyPenaltyAgain() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        reportCase.reject(9L, "rejected", java.time.LocalDateTime.now());
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> service.processReport(
+                        9L,
+                        10L,
+                        new ReportProcessRequest(ReportStatus.RESOLVED, ReportCategory.OTHER, null)
+                )
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_ALREADY_PROCESSED);
+        verifyNoInteractions(userReportPenaltyService);
+    }
+
+    @Test
+    void resolvingCaseAppliesOnePenaltyAndFinalizesEverySubmission() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 2L, TargetType.USER);
+        Report first = report(101L, reportCase, 1L);
+        Report second = report(102L, reportCase, 3L);
+
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportCaseRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L))
+                .thenReturn(List.of(first, second));
+        when(userReportPenaltyService.applyPenalty(reportCase)).thenReturn(PenaltyType.WARNING);
+
+        service.processReport(
+                9L,
+                10L,
+                new ReportProcessRequest(ReportStatus.RESOLVED, ReportCategory.OTHER, "confirmed")
+        );
+
+        assertThat(reportCase.getStatus()).isEqualTo(ReportStatus.RESOLVED);
+        assertThat(reportCase.getDecidedCategory()).isEqualTo(ReportCategory.OTHER);
+        assertThat(first.getStatus()).isEqualTo(ReportStatus.RESOLVED);
+        assertThat(second.getStatus()).isEqualTo(ReportStatus.RESOLVED);
+        verify(userReportPenaltyService, times(1)).applyPenalty(reportCase);
+    }
+
+    @Test
+    void adminCanPresignSpecificEvidenceForSubmissionInCase() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 2L, TargetType.USER);
+        Report report = new Report(
+                reportCase,
+                1L,
+                2L,
+                null,
+                TargetType.USER,
+                ReportCategory.OTHER,
+                "title",
+                "context"
+        );
+        ReflectionTestUtils.setField(report, "reportId", 101L);
+        ReportEvidence evidence = ReportEvidence.create(
+                report,
+                "reports/1/evidence.png",
+                "evidence.png",
+                "image/png",
+                1024L,
+                0
+        );
+        ReflectionTestUtils.setField(evidence, "evidenceId", 1001L);
+        PresignDownloadResponse expected = new PresignDownloadResponse(
+                "https://s3.example/presigned",
+                LocalDateTime.now(),
+                "reports/1/evidence.png"
+        );
+
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(evidenceRepository.findByEvidenceIdAndReport_ReportIdAndReport_ReportCase_CaseId(1001L, 101L, 10L))
+                .thenReturn(Optional.of(evidence));
+        when(presignEngine.presignDownload("reports/1/evidence.png", "evidence.png", "image/png"))
+                .thenReturn(expected);
+
+        assertThat(service.getEvidenceDownloadUrl(9L, 10L, 101L, 1001L)).isEqualTo(expected);
+    }
+
+    @Test
+    void createReportStoresMultipleEvidence() {
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        ReportCreateRequest request = new ReportCreateRequest(
+                2L,
+                100L,
+                TargetType.COMMUNITY,
+                ReportCategory.OTHER,
+                "title",
+                "context",
+                List.of("temp/first.png", "temp/second.png")
+        );
+
+        when(reportTargetResolver.resolve(1L, request))
+                .thenReturn(new ReportTargetResolver.ResolvedTarget("COMMUNITY:100", 100L, author));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(reportCaseRepository.findByTargetKeyAndStatus("COMMUNITY:100", ReportStatus.RECEIVED)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.saveAndFlush(any(Report.class))).thenAnswer(invocation -> {
+            Report saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "reportId", 101L);
+            return saved;
+        });
+        when(reportAttachmentService.applyOnReportCreate(eq(1L), any(Report.class), eq(request.evidenceImageKeys())))
+                .thenAnswer(invocation -> {
+                    Report report = invocation.getArgument(1);
+                    return List.of(
+                            ReportEvidence.create(report, "final/first.png", "first.png", "image/png", 10L, 0),
+                            ReportEvidence.create(report, "final/second.png", "second.png", "image/png", 20L, 1)
+                    );
+                });
+
+        assertThat(service.createReport(1L, request)).isEqualTo(101L);
+
+        verify(reportAttachmentService).applyOnReportCreate(
+                eq(1L),
+                any(Report.class),
+                eq(List.of("temp/first.png", "temp/second.png"))
+        );
+    }
+
+    @Test
+    void reportDetailContainsEveryEvidenceItemInDisplayOrder() {
+        Users admin = user(9L, UserRole.ADMIN, UserStatus.ACTIVE);
+        Users author = user(2L, UserRole.USER, UserStatus.ACTIVE);
+        ReportCase reportCase = reportCase(10L, author, 100L, TargetType.COMMUNITY);
+        Report report = report(101L, reportCase, 1L);
+        ReportEvidence first = ReportEvidence.create(
+                report, "final/first.png", "first.png", "image/png", 100L, 0);
+        ReportEvidence second = ReportEvidence.create(
+                report, "final/second.jpg", "second.jpg", "image/jpeg", 200L, 1);
+        ReflectionTestUtils.setField(first, "evidenceId", 1001L);
+        ReflectionTestUtils.setField(second, "evidenceId", 1002L);
+
+        when(userRepository.findByUserId(9L)).thenReturn(Optional.of(admin));
+        when(reportCaseRepository.findById(10L)).thenReturn(Optional.of(reportCase));
+        when(reportRepository.findAllByReportCase_CaseIdOrderByCreatedAtAsc(10L)).thenReturn(List.of(report));
+        when(evidenceRepository.findAllByReport_ReportIdInOrderByReport_ReportIdAscSortOrderAsc(List.of(101L)))
+                .thenReturn(List.of(first, second));
+
+        var detail = service.getReportDetail(9L, 10L);
+
+        assertThat(detail.submissions()).singleElement().satisfies(submission -> {
+            assertThat(submission.hasEvidence()).isTrue();
+            assertThat(submission.evidenceCount()).isEqualTo(2);
+            assertThat(submission.evidence()).extracting("evidenceId")
+                    .containsExactly(1001L, 1002L);
+        });
+    }
+
+    private static ReportCreateRequest request(Long reportedUserId, Long postId, TargetType targetType) {
+        return new ReportCreateRequest(
+                reportedUserId,
+                postId,
+                targetType,
+                ReportCategory.OTHER,
+                "title",
+                "context",
+                null
+        );
+    }
+
+    private static Users user(Long userId, UserRole role, UserStatus status) {
+        return Users.builder()
+                .userId(userId)
+                .name("user-" + userId)
+                .role(role)
+                .status(status)
+                .build();
+    }
+
+    private static ReportCase reportCase(Long caseId, Users author, Long targetId, TargetType targetType) {
+        ReportCase reportCase = ReportCase.open(
+                Report.targetKeyFor(targetType, author.getUserId(), targetId),
+                author,
+                targetId,
+                targetType
+        );
+        ReflectionTestUtils.setField(reportCase, "caseId", caseId);
+        return reportCase;
+    }
+
+    private static Report report(Long reportId, ReportCase reportCase, Long reporterId) {
+        Report report = new Report(
+                reportCase,
+                reporterId,
+                reportCase.getReportedUser().getUserId(),
+                reportCase.getTargetType() == TargetType.USER ? null : reportCase.getTargetId(),
+                reportCase.getTargetType(),
+                ReportCategory.OTHER,
+                "title",
+                "context"
+        );
+        ReflectionTestUtils.setField(report, "reportId", reportId);
+        return report;
+    }
+}

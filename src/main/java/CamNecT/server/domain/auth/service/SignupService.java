@@ -47,12 +47,11 @@ public class SignupService {
                 .passwordHash(passwordEncoder.encode(req.password()))
                 .status(UserStatus.ADMIN_PENDING)
                 .build();
-
         Users savedUser;
         try {
             savedUser = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
-            throw new CustomException(AuthErrorCode.DUPLICATE_RESOURCE);
+            throw new CustomException(AuthErrorCode.DUPLICATE_RESOURCE, e);
         }
 
         UserProfile emptyProfile = UserProfile.builder()

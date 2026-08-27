@@ -7,6 +7,7 @@ import java.time.LocalDate;
 public record PortfolioPreviewResponse(
         Long portfolioId,
         String title,
+        String subtitle,
         String thumbnailUrl,
         boolean isPublic,
         boolean isFavorite,
@@ -16,6 +17,7 @@ public record PortfolioPreviewResponse(
         return new PortfolioPreviewResponse(
                 project.getPortfolioId(),
                 project.getTitle(),
+                project.getSubtitle(),
                 project.getThumbnailUrl(),
                 project.isPublic(),
                 project.isFavorite(),

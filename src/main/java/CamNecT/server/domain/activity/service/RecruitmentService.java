@@ -17,6 +17,7 @@ import CamNecT.server.domain.chat.model.ChatRequest;
 import CamNecT.server.domain.chat.repository.ChatRequestRepository;
 import CamNecT.server.domain.community.dto.AuthorDto;
 import CamNecT.server.domain.community.service.AuthorAssembler;
+import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
@@ -60,7 +61,7 @@ public class RecruitmentService {
         }
 
         //대외활동 검증
-        ExternalActivity activity = activityRepository.findById(request.activityId()).orElseThrow(
+        ExternalActivity activity = activityRepository.findByIdForUpdate(request.activityId()).orElseThrow(
                 ()-> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND)
         );
 
@@ -111,7 +112,7 @@ public class RecruitmentService {
     public void updateRecruitment(Long userId, Long recruitmentId, RecruitmentRequest request) {
         requireAuthenticatedUser(userId);
         // 1. 모집글 조회
-        TeamRecruitment recruitment = recruitmentRepository.findById(recruitmentId)
+        TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitmentId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
 
         // 2. 작성자 본인 확인
@@ -259,14 +260,54 @@ public class RecruitmentService {
         // 4. 상태를 CLOSED로 변경 (더티 체킹으로 자동 업데이트)
         recruitment.close();
 
-        // 5. 대기중인 TEAM_RECRUIT 요청들 전부 거절 처리 + 알림
-        List<ChatRequest> targets = chatRequestRepository.findAllNonAcceptedTeamRecruitFetchRequester(
+        // 5. 응답과 경합하지 않도록 대기 요청을 잠근 뒤 거절한다.
+        List<ChatRequest> targets = chatRequestRepository.findAllByRecruitmentIdAndTypeAndStatusForUpdate(
                 ChatRequest.RequestType.TEAM_RECRUIT,
                 recruitId,
-                ChatRequest.RequestStatus.ACCEPTED
+                ChatRequest.RequestStatus.WAITING
         );
 
-        for (ChatRequest r : targets) if (r.getStatus() == ChatRequest.RequestStatus.WAITING) r.reject();
+        targets.forEach(ChatRequest::reject);
+    }
+
+    /**
+     * 팀원 모집글 삭제
+     * - 작성자 또는 관리자만 삭제 가능
+     * - 모집글은 삭제됨
+     * - 모집글과 연관된 지원서와 북마크는 함께 삭제됨
+     * - WAITING ChatRequest는 거절됨
+     * - ACCEPTED/REJECTED ChatRequest와 ChatRoom의 recruitmentId는 이력으로 유지됨
+     */
+    @Transactional
+    public void deleteRecruitment(Long userId, Long recruitId) {
+        requireAuthenticatedUser(userId);
+        
+        // 1. 모집글 조회
+        TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitId)
+                .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
+
+        // 2. 작성자 본인 또는 관리자 확인
+        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAuthor = Objects.equals(recruitment.getUserId(), userId);
+
+        if (!isAdmin && !isAuthor) {
+            throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
+        }
+
+        // 3. 수락 처리와 경합하지 않도록 대기 요청을 잠근 뒤 거절
+        List<ChatRequest> waitingRequests = chatRequestRepository.findAllByRecruitmentIdAndTypeAndStatusForUpdate(
+                ChatRequest.RequestType.TEAM_RECRUIT,
+                recruitId,
+                ChatRequest.RequestStatus.WAITING
+        );
+        waitingRequests.forEach(ChatRequest::reject);
+
+        // 4. 모집글 연관 지원서와 북마크 삭제
+        teamApplicationRepository.deleteByRecruitId(recruitId);
+        bookmarkRepository.deleteByRecruitId(recruitId);
+
+        // 5. 모집글 삭제 (처리 완료된 ChatRequest/ChatRoom과 연결 ID는 유지)
+        recruitmentRepository.delete(recruitment);
     }
 
     private Users requireAuthenticatedUser(Long userId) {

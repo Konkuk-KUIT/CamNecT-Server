@@ -11,6 +11,7 @@ import java.util.List;
 
 public record PortfolioRequest(
         @NotBlank @Size(max = 100) String projectTitle,
+        @Size(max = 20) String subtitle,
         @Size(max = 16000) String description,
         @NotNull LocalDate startedAt,
         LocalDate endedAt,

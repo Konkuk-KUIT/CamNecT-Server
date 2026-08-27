@@ -12,7 +12,14 @@ import java.time.LocalDateTime;
 
 @Entity
 @Getter
-@Table(name = "report")
+@Table(
+        name = "report",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_report_reporter_case_slot",
+                columnNames = {"reporter_id", "case_id", "submission_slot"}
+        ),
+        indexes = @Index(name = "idx_report_case_created", columnList = "case_id, created_at")
+)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @EntityListeners(AuditingEntityListener.class)
 public class Report {
@@ -21,13 +28,24 @@ public class Report {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long reportId;
 
-    @Column(nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "case_id", nullable = false)
+    private ReportCase reportCase;
+
+    @Column(name = "reporter_id", nullable = false)
     private Long reporterId; // 신고자 ID
 
-    @Column(nullable = false)
+    @Column(name = "reported_user_id", nullable = false)
     private Long reportedUserId; // 신고당한 유저 ID
 
+    @Column(name = "reported_post_id")
     private Long reportedPostId; // 신고 글 ID (NULL 허용)
+
+    @Column(name = "target_key", nullable = false, length = 100)
+    private String targetKey;
+
+    @Column(name = "submission_slot", nullable = false)
+    private long submissionSlot;
 
     @Enumerated(EnumType.STRING)
     private TargetType postType; // 신고 글 타입 (COMMUNITY, ACTIVITY, USER 등)
@@ -41,8 +59,6 @@ public class Report {
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String context;
-
-    private String evidenceImageUrl; // 증거 이미지 URL
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -60,16 +76,18 @@ public class Report {
     private LocalDateTime updatedAt;
 
     // 편의를 위한 빌더 패턴 또는 생성자
-    public Report(Long reporterId, Long reportedUserId, Long reportedPostId,
-                  TargetType postType, ReportCategory reportCategory, String title, String context, String evidenceImageUrl) {
+    public Report(ReportCase reportCase, Long reporterId, Long reportedUserId, Long reportedPostId,
+                  TargetType postType, ReportCategory reportCategory, String title, String context) {
+        this.reportCase = reportCase;
         this.reporterId = reporterId;
         this.reportedUserId = reportedUserId;
         this.reportedPostId = reportedPostId;
         this.postType = postType;
+        this.targetKey = targetKeyFor(postType, reportedUserId, reportedPostId);
+        this.submissionSlot = 0;
         this.reportCategory = reportCategory;
         this.title = title;
         this.context = context;
-        this.evidenceImageUrl = evidenceImageUrl;
         this.status = ReportStatus.RECEIVED;
     }
 
@@ -81,7 +99,11 @@ public class Report {
         this.appliedPenalty = penalty;
     }
 
-    public void updateEvidenceImageUrl(String evidenceImageUrl) {
-        this.evidenceImageUrl = evidenceImageUrl;
+    public static String targetKeyFor(TargetType postType, Long reportedUserId, Long reportedPostId) {
+        if (postType == TargetType.CHAT) {
+            return postType.name() + ":" + reportedPostId + ":" + reportedUserId;
+        }
+        Long targetId = postType == TargetType.USER ? reportedUserId : reportedPostId;
+        return postType.name() + ":" + targetId;
     }
 }

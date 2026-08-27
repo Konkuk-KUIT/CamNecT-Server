@@ -21,7 +21,7 @@ public class TeamRecruitment {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long recruitId;
 
-    @JoinColumn(name = "activity_id", nullable = false)
+    @Column(name = "activity_id", nullable = false)
     private Long activityId;
 
     @JoinColumn(name = "user_id", nullable = false)

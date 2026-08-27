@@ -10,6 +10,7 @@ import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,6 +72,21 @@ class SignupServiceTest {
 
         assertThat(saved.getStatus()).isEqualTo(UserStatus.ADMIN_PENDING);
         verify(userProfileRepository).save(any(UserProfile.class));
+    }
+
+    @Test
+    void translatesDatabaseConstraintViolationToDuplicateResource() {
+        VerifySignupEmailRequest request = request(true, true);
+        when(passwordEncoder.encode("password123!A")).thenReturn("encoded");
+        when(userRepository.saveAndFlush(any(Users.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate"));
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> signupService.signupVerifiedUser(request));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.DUPLICATE_RESOURCE);
+        assertThat(exception.getCause()).isInstanceOf(DataIntegrityViolationException.class);
+        verify(userProfileRepository, never()).save(any(UserProfile.class));
     }
 
     private VerifySignupEmailRequest request(boolean serviceTerms, boolean privacyTerms) {

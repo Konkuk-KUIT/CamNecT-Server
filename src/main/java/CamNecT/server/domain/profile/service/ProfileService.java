@@ -375,6 +375,7 @@ public class ProfileService {
         return new PortfolioPreviewResponse(
                 p.portfolioId(),
                 p.title(),
+                p.subtitle(),
                 portfolioThumbOrDefault(p.thumbnailUrl()),
                 p.isPublic(),
                 p.isFavorite(),

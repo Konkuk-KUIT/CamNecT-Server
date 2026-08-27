@@ -5,6 +5,7 @@ import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.util.JwtUtil;
 import CamNecT.server.global.jwt.model.TokenType;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import CamNecT.server.domain.chat.repository.ChatRoomRepository;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class ChatStompInterceptor implements ChannelInterceptor {
 
     private final JwtUtil jwtUtil;
     private final AccountAccessGuard accountAccessGuard;
+    private final TokenSessionService tokenSessionService;
     private final ChatRoomRepository chatRoomRepository;
 
     @Override
@@ -44,10 +46,13 @@ public class ChatStompInterceptor implements ChannelInterceptor {
 
                 Long userId = jwtUtil.getUserId(token);
                 accountAccessGuard.requireActive(userId);
+                String sessionId = tokenSessionService.requireActiveAccess(userId, token);
                 if (accessor.getSessionAttributes() == null) {
                     throw new CustomException(AuthErrorCode.INVALID_TOKEN);
                 }
                 accessor.getSessionAttributes().put("userId", userId);
+                accessor.getSessionAttributes().put("sessionId", sessionId);
+                accessor.getSessionAttributes().put("accessTokenHash", tokenSessionService.accessTokenHash(token));
 
                 accessor.setUser(new StompPrincipal(userId.toString()));
 
@@ -60,27 +65,39 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             }
         }
 
-        if (accessor != null && StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
-            authorizeSubscription(accessor);
+        if (accessor != null && (StompCommand.SEND.equals(accessor.getCommand())
+                || StompCommand.SUBSCRIBE.equals(accessor.getCommand()))) {
+            Long userId = requireActiveSessionUser(accessor);
+            if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+                authorizeSubscription(accessor, userId);
+            }
         }
 
         return message;
     }
 
-    private void authorizeSubscription(StompHeaderAccessor accessor) {
+    private Long requireActiveSessionUser(StompHeaderAccessor accessor) {
         Object userIdValue = accessor.getSessionAttributes() == null
                 ? null : accessor.getSessionAttributes().get("userId");
         if (userIdValue == null) {
             throw new CustomException(AuthErrorCode.INVALID_TOKEN);
         }
-
-        Long userId;
         try {
-            userId = Long.valueOf(userIdValue.toString());
+            Long userId = Long.valueOf(userIdValue.toString());
+            accountAccessGuard.requireActive(userId);
+            Object tokenHash = accessor.getSessionAttributes().get("accessTokenHash");
+            Object sessionId = accessor.getSessionAttributes().get("sessionId");
+            if (tokenHash == null || sessionId == null) {
+                throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+            }
+            tokenSessionService.requireActiveAccessHash(userId, sessionId.toString(), tokenHash.toString());
+            return userId;
         } catch (NumberFormatException e) {
             throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
         }
+    }
 
+    private void authorizeSubscription(StompHeaderAccessor accessor, Long userId) {
         String destination = accessor.getDestination();
         if (destination == null) {
             throw new CustomException(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);

@@ -1,71 +1,55 @@
 package CamNecT.server.domain.auth.service;
 
 import CamNecT.server.domain.auth.dto.others.TokenRefreshResponse;
+import CamNecT.server.domain.report.service.UserReportPenaltyService;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
-import CamNecT.server.global.jwt.model.UserRefreshToken;
-import CamNecT.server.global.jwt.repository.UserRefreshTokenRepository;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import CamNecT.server.global.jwt.util.JwtUtil;
 import CamNecT.server.global.jwt.model.TokenType;
-import CamNecT.server.global.jwt.util.TokenUtil;
+import io.jsonwebtoken.ExpiredJwtException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-
 @Service
 @RequiredArgsConstructor
-@SuppressWarnings("unused") // /api/auth/refresh 재활성화 시 사용할 refresh token 회전 구현
 public class AuthTokenService {
     private final JwtUtil jwtUtil;
     private final UserRepository userRepository;
-    private final UserRefreshTokenRepository refreshTokenRepository;
+    private final TokenSessionService tokenSessionService;
+    private final UserReportPenaltyService userReportPenaltyService;
 
     @Transactional
     public TokenRefreshResponse refreshAccessToken(String rawRefreshToken) {
         String refreshToken = normalize(rawRefreshToken);
-        // 1) 서명/만료 검증
-        jwtUtil.validateOrThrow(refreshToken);
-        if (jwtUtil.getTokenType(refreshToken) != TokenType.REFRESH) {
+        validateRefreshToken(refreshToken);
+        if (getTokenType(refreshToken) != TokenType.REFRESH) {
             throw new CustomException(AuthErrorCode.TOKEN_TYPE_NOT_ALLOWED);
         }
 
-        Long userId = jwtUtil.getUserId(refreshToken);
+        Long userId = getUserId(refreshToken);
+        String sessionId = getSessionId(refreshToken);
         Users user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
-        if (user.getStatus() == UserStatus.SUSPENDED) {
+        if (user.getStatus() == UserStatus.SUSPENDED
+                || userReportPenaltyService.hasActiveRestriction(userId)) {
+            tokenSessionService.revokeAll(userId);
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
         if (user.getStatus() == UserStatus.WITHDRAWN) {
+            tokenSessionService.revokeAll(userId);
             throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
         }
 
-        UserRefreshToken saved = refreshTokenRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+        String newAccess = jwtUtil.generateAccessToken(userId, user.getRole(), sessionId);
+        String newRefresh = jwtUtil.generateRefreshToken(userId, user.getRole(), sessionId);
 
-        String incomingHash = TokenUtil.sha256Hex(refreshToken);
-
-        Instant now = Instant.now();
-        if (saved.getExpiresAt().isBefore(now)) {
-            throw new CustomException(AuthErrorCode.REFRESH_TOKEN_EXPIRED);
-        }
-
-        if (!saved.getRefreshTokenHash().equals(incomingHash)) {
-            refreshTokenRepository.delete(saved);
-            throw new CustomException(AuthErrorCode.REFRESH_TOKEN_REUSED);
-        }
-
-        String newAccess = jwtUtil.generateAccessToken(userId, user.getRole());
-        String newRefresh = jwtUtil.generateRefreshToken(userId, user.getRole());
-
-        // 3) 저장값을 새 refresh로 교체(= 기존 refresh 즉시 무효화)
-        String newHash = TokenUtil.sha256Hex(newRefresh);
-        Instant newExp = jwtUtil.getExpiration(newRefresh); // 이미 Instant로 주는 메서드 있음
-        saved.rotate(newHash, newExp);
+        // Redis에서 저장 토큰 대조와 새 access/refresh 저장을 원자적으로 수행한다.
+        tokenSessionService.rotate(userId, refreshToken, newAccess, newRefresh);
 
         return new TokenRefreshResponse(
                 "Bearer",
@@ -74,6 +58,52 @@ public class AuthTokenService {
                 newRefresh,
                 jwtUtil.getRefreshTokenExpirationMs()
         );
+    }
+
+    private void validateRefreshToken(String refreshToken) {
+        try {
+            jwtUtil.validateOrThrow(refreshToken);
+        } catch (CustomException e) {
+            if (hasCause(e, ExpiredJwtException.class)) {
+                throw new CustomException(AuthErrorCode.REFRESH_TOKEN_EXPIRED, e);
+            }
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
+        }
+    }
+
+    private TokenType getTokenType(String refreshToken) {
+        try {
+            return jwtUtil.getTokenType(refreshToken);
+        } catch (CustomException e) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
+        }
+    }
+
+    private Long getUserId(String refreshToken) {
+        try {
+            return jwtUtil.getUserId(refreshToken);
+        } catch (CustomException e) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
+        }
+    }
+
+    private String getSessionId(String refreshToken) {
+        try {
+            return jwtUtil.getSessionId(refreshToken);
+        } catch (CustomException e) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
+        }
+    }
+
+    private boolean hasCause(Throwable throwable, Class<? extends Throwable> causeType) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (causeType.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private String normalize(String token) {

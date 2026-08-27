@@ -5,6 +5,8 @@ import CamNecT.server.domain.auth.dto.login.LoginResponse;
 import CamNecT.server.domain.auth.dto.login.VerificationCompleteResponse;
 import CamNecT.server.domain.auth.dto.account.FindUsernameRequest;
 import CamNecT.server.domain.auth.dto.account.FindUsernameResponse;
+import CamNecT.server.domain.auth.dto.others.LogoutRequest;
+import CamNecT.server.domain.auth.dto.others.TokenRefreshRequest;
 import CamNecT.server.domain.auth.dto.others.TokenRefreshResponse;
 import CamNecT.server.domain.auth.dto.others.WithdrawRequest;
 import CamNecT.server.domain.auth.dto.password.ResetPasswordRequest;
@@ -17,6 +19,7 @@ import CamNecT.server.domain.auth.dto.signup.SendSignupEmailResponse;
 import CamNecT.server.domain.auth.dto.signup.VerifySignupEmailRequest;
 import CamNecT.server.domain.auth.dto.signup.VerifySignupEmailResponse;
 import CamNecT.server.domain.auth.service.AccountRecoveryService;
+import CamNecT.server.domain.auth.service.AuthTokenService;
 import CamNecT.server.domain.auth.service.LoginService;
 import CamNecT.server.domain.profile.dto.request.UpdateOnboardingRequest;
 import CamNecT.server.domain.profile.dto.response.ProfileStatusResponse;
@@ -24,11 +27,10 @@ import CamNecT.server.domain.profile.service.ProfileService;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.verification.email.service.EmailVerificationService;
 import CamNecT.server.global.common.auth.UserId;
-import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.auth.SessionId;
 import CamNecT.server.global.common.response.ApiResponse;
 import CamNecT.server.global.common.response.ErrorResponse;
 import CamNecT.server.global.common.response.InvalidPropertiesErrorResponse;
-import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.Operation;
@@ -53,6 +55,7 @@ public class AuthController {
     private final EmailVerificationService emailVerificationService;
     private final ProfileService profileService;
     private final AccountRecoveryService accountRecoveryService;
+    private final AuthTokenService authTokenService;
 
     @Operation(
             summary = "로그인",
@@ -94,6 +97,7 @@ public class AuthController {
             description = "입력한 이메일로 6자리 인증코드를 발송합니다. (아직 유저는 생성하지 않습니다.)"
     )
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 이메일 요청값 검증 실패", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "41901 이미 가입된 이메일", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "415", description = "41500 지원하지 않는 요청 Content-Type", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -115,6 +119,7 @@ public class AuthController {
             description = "이메일 인증코드를 검증한 뒤, 회원 정보를 확정하여 유저를 생성합니다."
     )
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청값 검증 실패 / 41010 비밀번호 정책 위반 / 41020 필수 약관 미동의 / 42030 활성 코드 없음 / 42031 만료·사용된 코드 / 42032 코드 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "41901 이메일 / 41902 아이디 / 41903 전화번호 중복 / 41904 DB 유니크 충돌", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "415", description = "41500 지원하지 않는 요청 Content-Type", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -133,6 +138,7 @@ public class AuthController {
             description = "관리자 인증이 완료된 ACTIVE 사용자의 선택 프로필 정보를 저장하고 초기 설정 안내를 완료 처리합니다. 빈 요청으로 건너뛸 수 있으며 profileImageKey, bio, tagIds는 모두 선택값입니다. 일반 서비스 이용은 초기 설정 완료 여부와 무관합니다."
     )
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성 성공", useReturnTypeSchema = true),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청값 검증 실패 / 44030 유효하지 않은 태그 / 49010 만료·사용된 업로드 티켓 / 49011 업로드 파일 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "41102 Bearer 형식 오류 / 41103 유효하지 않은 토큰 / 41104 토큰 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 41303 탈퇴한 사용자 / 49310 업로드 티켓 사용 권한 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -153,17 +159,22 @@ public class AuthController {
 
     @Operation(
             summary = "로그아웃",
-            description = "현재 사용자의 서버 저장 refresh token을 삭제합니다. 클라이언트는 보관 중인 access/refresh token도 함께 삭제해야 합니다."
+            description = "현재 Access Token의 로그인 세션만 폐기합니다. deviceId를 보내면 해당 기기의 푸시만 비활성화합니다. 구버전 클라이언트 호환을 위해 본문 생략 시에는 사용자의 모든 푸시 기기를 비활성화하며, 프론트 전환 완료 후 deviceId를 필수로 변경할 예정입니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "로그아웃 성공", content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 deviceId 공백·길이 초과 또는 잘못된 JSON", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "41102 Bearer 형식 오류 / 41103 유효하지 않은 토큰 / 41104 토큰 누락 / 41106 Access Token이 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 41303 탈퇴한 사용자", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "50000 로그아웃 처리 또는 내부 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/logout")
-    public void logout(@UserId Long loginUserId) {
-        loginService.logout(loginUserId);
+    public void logout(
+            @UserId Long loginUserId,
+            @SessionId String sessionId,
+            @RequestBody(required = false) @Valid LogoutRequest req
+    ) {
+        loginService.logout(loginUserId, sessionId, req == null ? null : req.deviceId());
     }
 
     @Operation(summary = "인증 완료 화면 정보 조회", description = "초기 설정 안내가 남은 ACTIVE 사용자의 인증 완료 화면에 필요한 이름/학번/학교/학과를 반환합니다.")
@@ -180,13 +191,24 @@ public class AuthController {
         return loginService.getVerificationCompleteInfo(userId);
     }
 
-    @Operation(summary = "Refresh token 재발급 비활성화", description = "현재 refresh token 재발급 기능은 비활성화되어 있으며, 호출하면 410 Gone을 반환합니다.")
+    @Operation(
+            summary = "Access/Refresh Token 재발급",
+            description = "유효한 refreshToken을 요청 본문으로 받아 새 accessToken과 refreshToken을 발급합니다. Refresh Token Rotation을 사용하므로 성공 응답의 새 refreshToken으로 반드시 교체해야 합니다."
+    )
     @ApiResponses({
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "41000 Refresh token 재발급 API 비활성화", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "재발급 성공", useReturnTypeSchema = true),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 refreshToken 누락·공백·길이 초과 또는 잘못된 JSON", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "41103 변조·폐기된 토큰 / 41106 Refresh Token이 아님 / 41107 이미 사용된 Refresh Token / 41108 만료된 Refresh Token", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 41303 탈퇴한 사용자", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "41401 사용자를 찾을 수 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "415", description = "41500 지원하지 않는 요청 Content-Type", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "50310 Redis 일시 장애", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/refresh")
-    public ApiResponse<TokenRefreshResponse> refresh() {
-        throw new CustomException(ErrorCode.GONE);
+    public ApiResponse<TokenRefreshResponse> refresh(
+            @RequestBody @Valid @NotNull TokenRefreshRequest req
+    ) {
+        return ApiResponse.success(authTokenService.refreshAccessToken(req.refreshToken()));
     }
 
     @Operation(summary = "아이디 찾기", description = "이름과 이메일을 확인하여 가입된 아이디를 조회합니다.")
@@ -267,6 +289,7 @@ public class AuthController {
 
     @Operation(summary = "회원 탈퇴", description = "비밀번호 확인 후 계정을 탈퇴 처리(익명화)합니다.")
     @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "처리 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 요청값 검증 실패", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "41101 현재 비밀번호 불일치 / 41102 Bearer 형식 오류 / 41103 유효하지 않은 토큰 또는 토큰 사용자 없음 / 41104 토큰 누락 / 41106 Access Token이 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "41302 정지된 사용자 / 41303 이미 탈퇴한 사용자", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

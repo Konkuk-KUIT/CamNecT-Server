@@ -4,6 +4,7 @@ import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.model.TokenType;
 import CamNecT.server.global.jwt.util.JwtUtil;
+import CamNecT.server.global.jwt.service.TokenSessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.MethodParameter;
@@ -21,11 +22,14 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
 
     private final JwtUtil jwtUtil;
     private final AccountAccessGuard accountAccessGuard;
+    private final TokenSessionService tokenSessionService;
 
     @Override
     public boolean supportsParameter(@NonNull MethodParameter parameter) {
-        return parameter.hasParameterAnnotation(UserId.class)
-                && parameter.getParameterType().equals(Long.class);
+        return (parameter.hasParameterAnnotation(UserId.class)
+                && parameter.getParameterType().equals(Long.class))
+                || (parameter.hasParameterAnnotation(SessionId.class)
+                && parameter.getParameterType().equals(String.class));
     }
 
     @Override
@@ -35,8 +39,14 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
                                   @Nullable WebDataBinderFactory binderFactory) {
 
         HttpServletRequest request = webRequest.getNativeRequest(HttpServletRequest.class);
-        if (request != null && request.getAttribute("userId") instanceof Long userId) {
-            return userId;
+        boolean sessionIdParameter = parameter.hasParameterAnnotation(SessionId.class);
+        if (request != null) {
+            if (sessionIdParameter && request.getAttribute("sessionId") instanceof String sessionId) {
+                return sessionId;
+            }
+            if (!sessionIdParameter && request.getAttribute("userId") instanceof Long userId) {
+                return userId;
+            }
         }
 
         String authHeader = webRequest.getHeader("Authorization");
@@ -45,7 +55,7 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
         }
 
         String token = extractBearerToken(authHeader);
-        validateAuthEndpointTokenType(webRequest, token);
+        TokenType tokenType = validateAuthEndpointTokenType(webRequest, token);
         Long userId;
         try {
             userId = jwtUtil.getUserId(token);
@@ -53,6 +63,22 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
             throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);
         }
         accountAccessGuard.requireAccessible(userId);
+        String sessionId = null;
+        if (tokenType == TokenType.ACCESS) {
+            sessionId = tokenSessionService.requireActiveAccess(userId, token);
+        }
+        if (request != null) {
+            request.setAttribute("userId", userId);
+            if (sessionId != null) {
+                request.setAttribute("sessionId", sessionId);
+            }
+        }
+        if (sessionIdParameter) {
+            if (sessionId == null) {
+                throw new CustomException(AuthErrorCode.TOKEN_TYPE_NOT_ALLOWED);
+            }
+            return sessionId;
+        }
         return userId;
     }
 
@@ -64,10 +90,10 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
         return header.substring(prefix.length()).trim();
     }
 
-    private void validateAuthEndpointTokenType(NativeWebRequest webRequest, String token) {
+    private TokenType validateAuthEndpointTokenType(NativeWebRequest webRequest, String token) {
         HttpServletRequest request = webRequest.getNativeRequest(HttpServletRequest.class);
         if (request == null || !request.getRequestURI().startsWith("/api/auth/")) {
-            return;
+            return jwtUtil.getTokenType(token);
         }
 
         TokenType tokenType;
@@ -91,5 +117,6 @@ public class UserIdArgumentResolver implements HandlerMethodArgumentResolver {
         if (!allowed) {
             throw new CustomException(AuthErrorCode.TOKEN_TYPE_NOT_ALLOWED);
         }
+        return tokenType;
     }
 }

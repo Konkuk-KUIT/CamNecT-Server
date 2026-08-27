@@ -13,8 +13,8 @@ import java.time.LocalDateTime;
 @Table(
         name = "comments",
         indexes = {
-                @Index(name = "idx_comments_post", columnList = "post_id,comment_id"),
-                @Index(name = "idx_comments_parent", columnList = "parent_comment_id,comment_id")
+                @Index(name = "idx_comments_root_cursor", columnList = "post_id,parent_comment_id,comment_id,status"),
+                @Index(name = "idx_comments_children", columnList = "post_id,parent_comment_id,status,created_at,comment_id")
         }
 )
 @Getter

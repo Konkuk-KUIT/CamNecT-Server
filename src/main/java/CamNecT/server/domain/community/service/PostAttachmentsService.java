@@ -35,11 +35,15 @@ public class PostAttachmentsService {
 
     @Transactional
     public PresignUploadBatchResponse presignAttachmentsBatch(Long userId, PresignUploadBatchRequest req) {
-        var items = (req == null || req.items() == null) ? List.<PresignUploadBatchRequest.Item>of()
-                : req.items().stream().filter(Objects::nonNull).toList();
+        var items = (req == null || req.items() == null)
+                ? List.<PresignUploadBatchRequest.Item>of()
+                : req.items();
 
         if (items.isEmpty()) throw new CustomException(StorageErrorCode.EMPTY_FILE_NOT_ALLOWED);
         if (items.size() > attachmentProps.maxFiles()) throw new CustomException(StorageErrorCode.UPLOAD_TICKET_LIMIT_EXCEEDED);
+        if (items.stream().anyMatch(Objects::isNull)) {
+            throw new CustomException(StorageErrorCode.INVALID_ATTACHMENT_METADATA);
+        }
 
         userRepository.lockUserRow(userId);
 
@@ -75,10 +79,7 @@ public class PostAttachmentsService {
      */
     @Transactional
     public void replace(Posts post, Long userId, List<AttachmentRequest> attachments) {
-
-        if (attachments != null && attachments.size() > attachmentProps.maxFiles()) {
-            throw new CustomException(StorageErrorCode.UPLOAD_TICKET_LIMIT_EXCEEDED);
-        }
+        validateAttachmentRequests(attachments);
 
         // 기존 활성 첨부파일
         List<PostAttachments> oldActive =
@@ -157,11 +158,43 @@ public class PostAttachmentsService {
     private void validateAttachmentItem(PresignUploadBatchRequest.Item item) {
         String ct = globalPresignMethods.normalize(item.contentType());
 
+        if (!StringUtils.hasText(item.originalFilename())
+                || item.originalFilename().length() > 255
+                || item.originalFilename().chars().anyMatch(Character::isISOControl)
+                || item.originalFilename().contains("/")
+                || item.originalFilename().contains("\\")) {
+            throw new CustomException(StorageErrorCode.INVALID_ATTACHMENT_METADATA);
+        }
         if (item.size() <= 0) throw new CustomException(StorageErrorCode.EMPTY_FILE_NOT_ALLOWED);
         if (item.size() > attachmentProps.maxFileSizeBytes()) throw new CustomException(StorageErrorCode.FILE_TOO_LARGE);
 
         if (!StringUtils.hasText(ct) || !attachmentProps.allowedContentTypes().contains(ct)) {
             throw new CustomException(StorageErrorCode.UNSUPPORTED_CONTENT_TYPE);
+        }
+    }
+
+    private void validateAttachmentRequests(List<AttachmentRequest> attachments) {
+        if (attachments == null) return;
+        if (attachments.size() > attachmentProps.maxFiles()) {
+            throw new CustomException(StorageErrorCode.UPLOAD_TICKET_LIMIT_EXCEEDED);
+        }
+
+        Set<String> keys = new HashSet<>();
+        for (AttachmentRequest attachment : attachments) {
+            if (attachment == null
+                    || !StringUtils.hasText(attachment.fileKey())
+                    || attachment.fileKey().length() > 500
+                    || attachment.fileKey().chars().anyMatch(Character::isISOControl)
+                    || (attachment.width() == null) != (attachment.height() == null)
+                    || (attachment.width() != null && attachment.width() <= 0)
+                    || (attachment.height() != null && attachment.height() <= 0)
+                    || (attachment.fileSize() != null && (attachment.fileSize() <= 0
+                        || attachment.fileSize() > attachmentProps.maxFileSizeBytes()))) {
+                throw new CustomException(StorageErrorCode.INVALID_ATTACHMENT_METADATA);
+            }
+            if (!keys.add(attachment.fileKey())) {
+                throw new CustomException(StorageErrorCode.DUPLICATE_ATTACHMENT_KEY);
+            }
         }
     }
 

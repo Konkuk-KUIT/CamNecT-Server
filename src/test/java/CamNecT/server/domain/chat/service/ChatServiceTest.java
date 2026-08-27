@@ -3,7 +3,11 @@ package CamNecT.server.domain.chat.service;
 import CamNecT.server.domain.activity.repository.recruitment.TeamRecruitmentRepository;
 import CamNecT.server.domain.chat.dto.message.ChatMessageSendRequestDto;
 import CamNecT.server.domain.chat.dto.message.ChatMessageAckResponseDto;
+import CamNecT.server.domain.chat.dto.request.response.ChatRequestDetailDto;
+import CamNecT.server.domain.chat.dto.request.response.ChatRequestListResponseDto;
+import CamNecT.server.domain.chat.dto.room.ChatRoomWithDetailDto;
 import CamNecT.server.domain.chat.event.ChatMessageCommittedEvent;
+import CamNecT.server.domain.chat.event.ChatRoomClosedCommittedEvent;
 import CamNecT.server.domain.chat.model.Chat;
 import CamNecT.server.domain.chat.model.ChatRequest;
 import CamNecT.server.domain.chat.model.ChatRoom;
@@ -24,12 +28,15 @@ import CamNecT.server.global.tag.repository.TagRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -54,6 +61,45 @@ class ChatServiceTest {
     @Mock PointService pointService;
 
     @InjectMocks ChatService chatService;
+
+    @Test
+    void closePublishesRoomClosedEventAfterChangingRoomAndRequestState() {
+        Users user = activeUser(1L);
+        ChatRoom room = mock(ChatRoom.class);
+        ChatRequest request = mock(ChatRequest.class);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(chatRoomRepository.findByUserIdWithDetailsForUpdate(99L, 1L))
+                .thenReturn(Optional.of(room));
+        when(room.getRequest()).thenReturn(request);
+
+        chatService.closeChatRoom(99L, 1L);
+
+        InOrder inOrder = inOrder(room, request, eventPublisher);
+        inOrder.verify(room).closeRoom();
+        inOrder.verify(request).closeRequest();
+        ArgumentCaptor<ChatRoomClosedCommittedEvent> eventCaptor =
+                ArgumentCaptor.forClass(ChatRoomClosedCommittedEvent.class);
+        inOrder.verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().closedEvent().type()).isEqualTo("ROOM_CLOSED");
+        assertThat(eventCaptor.getValue().closedEvent().roomId()).isEqualTo(99L);
+    }
+
+    @Test
+    void exitKeepsSeparateSemanticsAndDoesNotPublishRoomClosedEvent() {
+        Users user = activeUser(1L);
+        ChatRoom room = mock(ChatRoom.class);
+        ChatRequest request = mock(ChatRequest.class);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(chatRoomRepository.findByUserIdWithDetailsForUpdate(99L, 1L))
+                .thenReturn(Optional.of(room));
+        when(room.getRequest()).thenReturn(request);
+
+        chatService.exitOfChatRoom(99L, 1L);
+
+        verify(room).leave(1L);
+        verify(request).closeRequest();
+        verifyNoInteractions(eventPublisher);
+    }
 
     @Test
     void oversizedMessageIsRejectedBeforeDatabaseAccess() {
@@ -124,6 +170,82 @@ class ChatServiceTest {
         CustomException ex = assertThrows(CustomException.class,
                 () -> chatService.respondToRequest(10L, 2L, false));
         assertThat(ex.getErrorCode()).isEqualTo(CoffeeChatErrorCode.REQUEST_ALREADY_PROCESSED);
+    }
+
+    @Test
+    void deletedRecruitmentUsesTheSameTitleInRequestDetailAndList() {
+        Users receiver = activeUser(1L, "receiver");
+        Users requester = activeUser(2L, "requester");
+        ChatRequest request = mock(ChatRequest.class);
+        java.time.LocalDateTime createdAt = java.time.LocalDateTime.of(2026, 8, 25, 12, 0);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(receiver));
+        when(chatRequestRepository.findById(20L)).thenReturn(Optional.of(request));
+        when(chatRequestRepository.findRequestsWithRequester(
+                1L,
+                ChatRequest.RequestType.TEAM_RECRUIT,
+                ChatRequest.RequestStatus.WAITING
+        )).thenReturn(List.of(request));
+        when(request.getId()).thenReturn(20L);
+        when(request.getRequester()).thenReturn(requester);
+        when(request.getReceiver()).thenReturn(receiver);
+        when(request.getType()).thenReturn(ChatRequest.RequestType.TEAM_RECRUIT);
+        when(request.getRecruitmentId()).thenReturn(30L);
+        when(request.getActivityId()).thenReturn(10L);
+        when(request.getContent()).thenReturn("지원합니다.");
+        when(request.getCreatedAt()).thenReturn(createdAt);
+        when(request.getRequestInterests()).thenReturn(List.of());
+        when(recruitmentRepository.findById(30L)).thenReturn(Optional.empty());
+        when(recruitmentRepository.findAllById(Set.of(30L))).thenReturn(List.of());
+        when(userProfileRepository.findByUserId(2L)).thenReturn(Optional.empty());
+        when(userProfileRepository.findGlobalsByUserIdIn(List.of(2L))).thenReturn(List.of());
+        when(userProfileRepository.findAllByUserIdIn(List.of(2L))).thenReturn(List.of());
+        when(userTagMapRepository.findAllTagsByUserId(2L)).thenReturn(List.of());
+
+        ChatRequestDetailDto detail = chatService.getChatRequestDetail(20L, 1L);
+        ChatRequestListResponseDto list = chatService.getChatRequestList(
+                1L,
+                ChatRequest.RequestType.TEAM_RECRUIT
+        );
+
+        assertThat(detail.recruitmentTitle()).isEqualTo("삭제된 모집 공고입니다.");
+        assertThat(detail.recruitmentId()).isEqualTo(30L);
+        assertThat(list.chatRequestList()).hasSize(1);
+        assertThat(list.chatRequestList().getFirst().recruitmentTitle())
+                .isEqualTo("삭제된 모집 공고입니다.");
+        assertThat(list.chatRequestList().getFirst().recruitmentId()).isEqualTo(30L);
+    }
+
+    @Test
+    void deletedRecruitmentTitleAndIdArePreservedInAcceptedChatRoom() {
+        Users me = activeUser(1L, "me");
+        Users opponent = activeUser(2L, "opponent");
+        ChatRequest request = mock(ChatRequest.class);
+        ChatRoom room = mock(ChatRoom.class);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(me));
+        when(chatRoomRepository.findByUserIdWithDetails(99L, 1L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.existsAccessibleByUserId(99L, 1L)).thenReturn(true);
+        when(chatRepository.findUnreadMessages(99L, 1L)).thenReturn(List.of());
+        when(chatRepository.findTop1000ByRoomId(eq(99L), any())).thenReturn(List.of());
+        when(room.getId()).thenReturn(99L);
+        when(room.getRequester()).thenReturn(me);
+        when(room.getReceiver()).thenReturn(opponent);
+        when(room.getRequest()).thenReturn(request);
+        when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
+        when(room.getTags()).thenReturn(List.of());
+        when(request.getType()).thenReturn(ChatRequest.RequestType.TEAM_RECRUIT);
+        when(request.getRecruitmentId()).thenReturn(30L);
+        when(request.getActivityId()).thenReturn(10L);
+        when(request.getContent()).thenReturn("지원합니다.");
+        when(recruitmentRepository.findById(30L)).thenReturn(Optional.empty());
+        when(userProfileRepository.findByUserId(2L)).thenReturn(Optional.empty());
+        when(userTagMapRepository.findAllTagsByUserId(2L)).thenReturn(List.of());
+
+        ChatRoomWithDetailDto result = chatService.getRoomWithDetails(99L, 1L);
+
+        assertThat(result.getRecruitmentTitle()).isEqualTo("삭제된 모집 공고입니다.");
+        assertThat(result.getRecruitmentId()).isEqualTo(30L);
     }
 
     @Test

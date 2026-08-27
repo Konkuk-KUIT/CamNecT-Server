@@ -13,10 +13,23 @@ public interface AcceptedCommentsRepository extends JpaRepository<AcceptedCommen
 
     boolean existsByPost_Id(Long postId);
 
+    boolean existsByComment_Id(Long commentId);
+
+    boolean existsByPost_IdAndComment_UserId(Long postId, Long userId);
+
     Optional<AcceptedComments> findByPost_Id(Long postId);
 
     @Query("select ac.post.id from AcceptedComments ac where ac.post.id in :postIds")
     List<Long> findAcceptedPostIds(@Param("postIds") Collection<Long> postIds);
+
+    @Query("""
+        select ac.post.id
+        from AcceptedComments ac
+        where ac.comment.userId = :userId
+          and ac.post.id in :postIds
+    """)
+    List<Long> findAcceptedAnswerPostIds(@Param("userId") Long userId,
+                                         @Param("postIds") Collection<Long> postIds);
 
     void deleteByPost_Id(Long postId);
 }
