@@ -15,7 +15,7 @@ import java.util.Optional;
 
 public interface ReportCaseRepository extends JpaRepository<ReportCase, Long> {
 
-    Optional<ReportCase> findByTargetKey(String targetKey);
+    Optional<ReportCase> findByTargetKeyAndStatus(String targetKey, ReportStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from ReportCase c where c.caseId = :caseId")
