@@ -67,6 +67,7 @@ public class PortfolioService {
                 .map(r -> new PortfolioPreviewResponse(
                         r.portfolioId(),
                         r.title(),
+                        r.subtitle(),
                         cdnOrDefault(r.thumbnailUrl()),
                         r.isPublic(),
                         r.isFavorite(),
@@ -155,6 +156,7 @@ public class PortfolioService {
         PortfolioProject project = PortfolioProject.builder()
                 .userId(userId)
                 .title(request.projectTitle())
+                .subtitle(request.subtitle())
                 .description(request.description())
                 .thumbnailUrl(DEFAULT_THUMB)
                 .startDate(request.startedAt())
@@ -188,6 +190,7 @@ public class PortfolioService {
         return new PortfolioPreviewResponse(
                 saved.getPortfolioId(),
                 saved.getTitle(),
+                saved.getSubtitle(),
                 cdnOrDefault(saved.getThumbnailUrl()),
                 saved.isPublic(),
                 saved.isFavorite(),
@@ -208,6 +211,7 @@ public class PortfolioService {
         // 1. 일반 정보 업데이트 (프로젝트 역할 및 기술 스택 포함)
         project.updateInfo(
                 request.projectTitle(),
+                request.subtitle(),
                 request.description(),
                 request.review(),
                 request.startedAt(),
@@ -232,6 +236,7 @@ public class PortfolioService {
         return new PortfolioPreviewResponse(
                 project.getPortfolioId(),
                 project.getTitle(),
+                project.getSubtitle(),
                 cdnOrDefault(project.getThumbnailUrl()),
                 project.isPublic(),
                 project.isFavorite(),

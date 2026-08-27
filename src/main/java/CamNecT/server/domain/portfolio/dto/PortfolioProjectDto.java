@@ -10,6 +10,7 @@ public record PortfolioProjectDto(
         Long portfolioId,
         Long userId,
         String title,
+        String subtitle,
         String thumbnailUrl, // CDN URL이 담길 곳
         LocalDate startDate,
         LocalDate endDate,
@@ -28,6 +29,7 @@ public record PortfolioProjectDto(
                 p.getPortfolioId(),
                 p.getUserId(),
                 p.getTitle(),
+                p.getSubtitle(),
                 fullThumbnailUrl,
                 p.getStartDate(),
                 p.getEndDate(),
