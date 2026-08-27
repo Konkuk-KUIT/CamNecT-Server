@@ -29,7 +29,7 @@ public class PortfolioProject {
     @Column(nullable = false, length = 100)
     private String title;
 
-    @Column(length = 20)
+    @Column(length = 50)
     private String subtitle;
 
     @Column(name = "thumbnail_url", length = 500)

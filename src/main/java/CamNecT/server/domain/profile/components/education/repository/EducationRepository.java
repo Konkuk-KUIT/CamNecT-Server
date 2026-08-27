@@ -13,6 +13,7 @@ public interface EducationRepository extends JpaRepository<Education, Long> {
 
     @Query("SELECT e FROM Education e " +
             "LEFT JOIN FETCH e.institution " +
+            "LEFT JOIN FETCH e.campus " +
             "WHERE e.user.userId = :userId " +
             "ORDER BY e.startDate DESC")
     List<Education> findAllByUserIdWithDetails(@Param("userId") Long userId);

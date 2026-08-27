@@ -8,6 +8,8 @@ import java.time.LocalDate;
 public record EducationResponse(
         Long educationId,
         String schoolName,
+        Long campusId,
+        String campusName,
 //        String majorName,
 //        String degree,
         LocalDate startDate,
@@ -19,6 +21,8 @@ public record EducationResponse(
         return new EducationResponse(
                 education.getEducationId(),
                 education.getInstitution().getInstitutionNameKor(),
+                education.getCampus() != null ? education.getCampus().getCampusId() : null,
+                education.getCampus() != null ? education.getCampus().getCampusName() : null,
 //                education.getMajor().getMajorNameKor(),
 //                education.getDegree(),
                 education.getStartDate(),
