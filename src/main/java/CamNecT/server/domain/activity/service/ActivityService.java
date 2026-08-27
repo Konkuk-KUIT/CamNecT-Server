@@ -247,7 +247,7 @@ public class ActivityService {
 
     @Transactional
     public void update(Long userId, Long activityId, ActivityRequest request) {
-        ExternalActivity activity = activityRepository.findById(activityId)
+        ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         if (activity.getUser() == null || !Objects.equals(activity.getUser().getUserId(), userId)) {
@@ -404,7 +404,7 @@ public class ActivityService {
         }
 
         // 2. 활동 조회
-        ExternalActivity activity = activityRepository.findById(activityId)
+        ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         // 3. 관리자가 작성한 글인지 카테고리로 검증 (유저 검증 없이 카테고리로만 검증)
@@ -456,7 +456,7 @@ public class ActivityService {
 
     @Transactional
     public void delete(Long activityId, Long userId) {
-        ExternalActivity activity = activityRepository.findById(activityId)
+        ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
@@ -465,6 +465,10 @@ public class ActivityService {
 
         if (!isAdmin && !isAuthor) {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
+        }
+
+        if (teamRecruitmentRepository.existsByActivityId(activityId)) {
+            throw new CustomException(ActivityErrorCode.ACTIVITY_HAS_RECRUITMENTS);
         }
 
         Set<String> deleteAfterCommit = new HashSet<>();
@@ -595,7 +599,7 @@ public class ActivityService {
     @Transactional
     public void closeActivity(Long userId, Long activityId) {
         // 1. 대외활동 조회
-        ExternalActivity activity = activityRepository.findById(activityId)
+        ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         // 2. 스터디와 동아리만 모집 마감 가능 (대외활동, 취업정보는 불가)
@@ -620,7 +624,7 @@ public class ActivityService {
     @Transactional
     public void closeActivityAdmin(Long activityId) {
         // 1. 대외활동 조회
-        ExternalActivity activity = activityRepository.findById(activityId)
+        ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         // 2. 대외활동과 취업정보만 마감 가능 (관리자가 작성한 것만)
@@ -639,10 +643,9 @@ public class ActivityService {
 
     @Transactional
     public boolean toggleActivityBookmark(Long userId, Long activityId) {
-        // 대외활동 존재 여부 확인
-        if (!activityRepository.existsById(activityId)) {
-            throw new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND);
-        }
+        // 삭제·수정과 북마크 변경을 동일 활동 행 기준으로 직렬화한다.
+        ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
+                .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         // 북마크 존재 여부 확인
         Optional<ExternalActivityBookmark> bookmarkOpt =
@@ -654,9 +657,7 @@ public class ActivityService {
             return false; // 해제됨을 반환
         } else {
             Users userRef = userRepository.getReferenceById(userId);
-            ExternalActivity actRef = activityRepository.getReferenceById(activityId);
-
-            ExternalActivityBookmark newBookmark = ExternalActivityBookmark.of(userRef, actRef);
+            ExternalActivityBookmark newBookmark = ExternalActivityBookmark.of(userRef, activity);
             activityBookmarkRepository.save(newBookmark);
             return true;
         }

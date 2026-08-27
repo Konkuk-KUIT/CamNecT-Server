@@ -20,8 +20,8 @@ public enum AuthErrorCode implements BaseErrorCode {
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, 41103, "유효하지 않은 토큰입니다."),
     ACCESS_TOKEN_REQUIRED(HttpStatus.UNAUTHORIZED, 41104, "Access Token이 필요합니다."),
     TOKEN_TYPE_NOT_ALLOWED(HttpStatus.UNAUTHORIZED,41106,"토큰타입이 다릅니다."),
-    REFRESH_TOKEN_REUSED(HttpStatus.UNAUTHORIZED,41107,"refresh 토큰 해시 불일치"),
-    REFRESH_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED,41108,"만료된 refresh 토큰입니다."),
+    REFRESH_TOKEN_REUSED(HttpStatus.UNAUTHORIZED,41107,"이미 사용되었거나 폐기된 Refresh Token입니다."),
+    REFRESH_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED,41108,"만료된 Refresh Token입니다."),
     TOKEN_SHAPE_NOT_ALLOWED(HttpStatus.UNAUTHORIZED,41109,"토큰 양식이 올바르지 않습니다.(Bearer 누락등)"),
 
     // 413xx - 권한/상태

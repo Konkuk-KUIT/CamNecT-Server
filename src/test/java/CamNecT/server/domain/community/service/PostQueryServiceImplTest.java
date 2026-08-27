@@ -1,6 +1,7 @@
 package CamNecT.server.domain.community.service;
 
 import CamNecT.server.domain.community.model.enums.BoardCode;
+import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.global.common.exception.CustomException;
@@ -64,6 +65,7 @@ class PostQueryServiceImplTest {
     void recommendedAcceptsCompleteCursorPair() {
         when(postsRepository.findFeedRecommended(
                 eq(PostStatus.PUBLISHED), isNull(), isNull(), isNull(),
+                eq(1L), eq(PostAccessType.POINT_REQUIRED), eq(BoardCode.QUESTION),
                 eq(3L), eq(10L), any(Pageable.class)
         )).thenReturn(new SliceImpl<>(List.of()));
 
@@ -76,7 +78,9 @@ class PostQueryServiceImplTest {
     @Test
     void searchEscapesLikeWildcardsBeforeRepositoryCall() {
         when(postsRepository.findFeedLatestWithFilter(
-                eq(PostStatus.PUBLISHED), eq(BoardCode.INFO), isNull(), anyString(), isNull(), any(Pageable.class)
+                eq(PostStatus.PUBLISHED), eq(BoardCode.INFO), isNull(), anyString(),
+                eq(1L), eq(PostAccessType.POINT_REQUIRED), eq(BoardCode.QUESTION),
+                isNull(), any(Pageable.class)
         )).thenReturn(new SliceImpl<>(List.of()));
 
         service.getPosts(
@@ -85,7 +89,9 @@ class PostQueryServiceImplTest {
         );
 
         verify(postsRepository).findFeedLatestWithFilter(
-                eq(PostStatus.PUBLISHED), eq(BoardCode.INFO), isNull(), eq("!%!_!!"), isNull(), any(Pageable.class)
+                eq(PostStatus.PUBLISHED), eq(BoardCode.INFO), isNull(), eq("!%!_!!"),
+                eq(1L), eq(PostAccessType.POINT_REQUIRED), eq(BoardCode.QUESTION),
+                isNull(), any(Pageable.class)
         );
     }
 }

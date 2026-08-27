@@ -4,6 +4,7 @@ import CamNecT.server.domain.community.dto.AuthorDto;
 import CamNecT.server.domain.community.model.enums.BoardCode;
 import CamNecT.server.domain.community.model.enums.ContentAccessStatus;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public record PostDetailResponse(
@@ -11,6 +12,7 @@ public record PostDetailResponse(
         BoardCode boardCode,
         String title,
         String content,
+        LocalDateTime createdAt,
         boolean anonymous,
         long viewCount,
         long bookmarkCount,

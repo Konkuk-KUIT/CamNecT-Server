@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
@@ -62,8 +63,9 @@ class ChatWebSocketContractIntegrationTest {
     @Test
     void websocketSendReturnsAckBroadcastsOnceAndRoutesValidationError() throws Exception {
         Fixture fixture = createFixture();
-        String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER);
-        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER);
+        String sessionId = UUID.randomUUID().toString();
+        String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER, sessionId);
+        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER, sessionId);
         tokenSessionService.create(fixture.senderId(), token, refreshToken);
 
         WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
@@ -141,6 +143,70 @@ class ChatWebSocketContractIntegrationTest {
             assertThat(idError.operation()).isEqualTo("SEND_MESSAGE");
             assertThat(idError.roomId()).isEqualTo(fixture.roomId());
             assertThat(idError.clientMessageId()).isEqualTo("not-a-uuid");
+        } finally {
+            if (session != null && session.isConnected()) {
+                session.disconnect();
+            }
+            client.stop();
+        }
+    }
+
+    @Test
+    void rapidSequentialMessagesKeepStorageAndBroadcastOrder() throws Exception {
+        Fixture fixture = createFixture();
+        String sessionId = UUID.randomUUID().toString();
+        String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER, sessionId);
+        String refreshToken = jwtUtil.generateRefreshToken(fixture.senderId(), UserRole.USER, sessionId);
+        tokenSessionService.create(fixture.senderId(), token, refreshToken);
+
+        WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
+        client.setMessageConverter(new MappingJackson2MessageConverter());
+
+        StompSession session = null;
+        try {
+            StompHeaders connectHeaders = new StompHeaders();
+            connectHeaders.add("Authorization", "Bearer " + token);
+            session = client.connectAsync(
+                    "ws://localhost:" + port + "/ws-stomp",
+                    new WebSocketHttpHeaders(),
+                    connectHeaders,
+                    new StompSessionHandlerAdapter() {}
+            ).get(MESSAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+            BlockingQueue<ChatMessageAckResponseDto> ackQueue = new LinkedBlockingQueue<>();
+            BlockingQueue<ChatMessageResponseDto> roomQueue = new LinkedBlockingQueue<>();
+            subscribe(session, "/user/queue/chat-acks",
+                    queueingHandler(ChatMessageAckResponseDto.class, ackQueue));
+            subscribe(session, "/sub/chat/room/" + fixture.roomId(),
+                    queueingHandler(ChatMessageResponseDto.class, roomQueue));
+            assertThat(awaitRoomPresence(fixture)).isTrue();
+
+            ChatMessageSendRequestDto first = new ChatMessageSendRequestDto(
+                    fixture.roomId(), "rapid-message-A", UUID.randomUUID().toString());
+            ChatMessageSendRequestDto second = new ChatMessageSendRequestDto(
+                    fixture.roomId(), "rapid-message-B", UUID.randomUUID().toString());
+
+            session.send("/pub/chat/message", first);
+            session.send("/pub/chat/message", second);
+
+            ChatMessageResponseDto firstBroadcast =
+                    roomQueue.poll(MESSAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            ChatMessageResponseDto secondBroadcast =
+                    roomQueue.poll(MESSAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(firstBroadcast).isNotNull();
+            assertThat(secondBroadcast).isNotNull();
+            assertThat(firstBroadcast.getMessage()).isEqualTo("rapid-message-A");
+            assertThat(secondBroadcast.getMessage()).isEqualTo("rapid-message-B");
+            assertThat(firstBroadcast.getMessageId()).isLessThan(secondBroadcast.getMessageId());
+
+            assertThat(ackQueue.poll(MESSAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+            assertThat(ackQueue.poll(MESSAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+
+            List<CamNecT.server.domain.chat.model.Chat> stored = chatRepository
+                    .findTop1000ByRoomId(fixture.roomId(), PageRequest.of(0, 10));
+            assertThat(stored).hasSize(2);
+            assertThat(stored.get(1).getContent()).isEqualTo("rapid-message-A");
+            assertThat(stored.get(0).getContent()).isEqualTo("rapid-message-B");
         } finally {
             if (session != null && session.isConnected()) {
                 session.disconnect();

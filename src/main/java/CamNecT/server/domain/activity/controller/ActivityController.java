@@ -36,6 +36,7 @@ public class ActivityController {
             summary = "대외활동 목록 조회",
             description = "카테고리(enum타입 - STUDY, CLUB, EXTERNAL, RECRUITMENT), 태그, 제목, 정렬 기준(enum타입 - RECOMMEND, DEADLINE, BOOKMARK, RECRUIT, LATEST), 을 적용하여 활동 목록을 무한 스크롤(Slice) 방식으로 조회합니다."
     )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @GetMapping
     public ApiResponse<Slice<ActivityPreviewResponse>> getActivities(
             @UserId Long userId,
@@ -49,6 +50,7 @@ public class ActivityController {
     }
 
     @Operation(summary = "대외활동 등록", description = "동아리/스터디에 해당하는 대외활동을 생성합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PostMapping
     public ApiResponse<ActivityPreviewResponse> create(
             @UserId Long userId,
@@ -58,6 +60,7 @@ public class ActivityController {
     }
 
     @Operation(summary = "대외활동 수정", description = "기존 대외활동 게시글을 수정합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PatchMapping("/{activityId}")
     public ApiResponse<String> update(
             @UserId Long userId,
@@ -70,6 +73,7 @@ public class ActivityController {
     }
 
     @Operation(summary = "대외활동 상세 조회", description = "특정 대외활동의 상세 정보를 조회합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @GetMapping("/{activityId}")
     public ApiResponse<ActivityDetailResponse> getActivityDetail(
             @UserId Long userId,
@@ -79,6 +83,7 @@ public class ActivityController {
     }
 
     @Operation(summary = "대외활동 삭제", description = "특정 대외활동을 삭제합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @DeleteMapping("/{activityId}")
     public ApiResponse<Long> delete(
             @PathVariable Long activityId,
@@ -89,6 +94,7 @@ public class ActivityController {
     }
 
     @Operation(summary = "대외활동 모집 마감", description = "대외활동 모집을 마감합니다. 스터디/동아리만 마감할 수 있으며, 작성자만 마감할 수 있습니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PatchMapping("/{activityId}/close")
     public ApiResponse<String> closeActivity(
             @PathVariable Long activityId,
@@ -99,6 +105,7 @@ public class ActivityController {
     }
 
     @Operation(summary = "대외활동 북마크 설정 (토글 방식)", description = "활동의 북마크 상태를 반전(Toggle)시킵니다. 등록 시 등록 메시지, 해제 시 해제 메시지를 반환합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PostMapping("/{activityId}/bookmark")
     public ApiResponse<String> toggleBookmark(
             @UserId Long userId,
@@ -116,6 +123,7 @@ public class ActivityController {
             summary = "[관리자] 대외활동/취업정보 등록",
             description = "관리자가 대외활동 또는 취업정보 게시글을 작성합니다. EXTERNAL(대외활동) 또는 RECRUITMENT(취업정보) 카테고리만 가능합니다."
     )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PostMapping("/admin")
     public ApiResponse<ActivityPreviewResponse> createAdmin(
             @UserId Long adminId,
@@ -128,6 +136,7 @@ public class ActivityController {
             summary = "[관리자] 대외활동/취업정보 수정",
             description = "관리자가 작성한 대외활동 또는 취업정보 게시글을 수정합니다. EXTERNAL(대외활동) 또는 RECRUITMENT(취업정보) 카테고리만 가능합니다."
     )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PatchMapping("/admin/{activityId}")
     public ApiResponse<String> updateAdmin(
             @UserId Long adminId,
@@ -142,6 +151,7 @@ public class ActivityController {
             summary = "[관리자] 대외활동/취업정보 모집 마감",
             description = "관리자가 작성한 대외활동 또는 취업정보 게시글을 마감합니다."
     )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PatchMapping("/admin/{activityId}/close")
     public ApiResponse<String> closeActivityAdmin(
             @PathVariable Long activityId
@@ -153,6 +163,7 @@ public class ActivityController {
 
     // --- S3 Presign URL 발급 API 추가 ---
     @Operation(summary = "대외활동 썸네일 업로드용 Presigned URL 발급")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PostMapping("/uploads/presign/thumbnail")
     public ApiResponse<PresignUploadResponse> presignThumbnail(
             @UserId Long userId,
@@ -162,6 +173,7 @@ public class ActivityController {
     }
 
     @Operation(summary = "대외활동 첨부 업로드용 Presigned URL 발급 (Batch)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @PostMapping("/uploads/presign/attachments")
     public ApiResponse<PresignUploadBatchResponse> presignAttachments(
             @UserId Long userId,

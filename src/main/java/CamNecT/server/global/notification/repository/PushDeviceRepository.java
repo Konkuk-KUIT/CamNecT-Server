@@ -21,4 +21,28 @@ public interface PushDeviceRepository extends JpaRepository<PushDevice, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update PushDevice p set p.enabled = false where p.fcmToken = :token and p.userId <> :userId")
     int disableTokenForOtherUsers(@Param("token") String token, @Param("userId") Long userId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        update PushDevice p
+           set p.enabled = false,
+               p.lastSeenAt = CURRENT_TIMESTAMP
+         where p.userId = :userId
+           and p.deviceId = :deviceId
+           and p.enabled = true
+    """)
+    int disableByUserIdAndDeviceId(
+            @Param("userId") Long userId,
+            @Param("deviceId") String deviceId
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        update PushDevice p
+           set p.enabled = false,
+               p.lastSeenAt = CURRENT_TIMESTAMP
+         where p.userId = :userId
+           and p.enabled = true
+    """)
+    int disableAllByUserId(@Param("userId") Long userId);
 }

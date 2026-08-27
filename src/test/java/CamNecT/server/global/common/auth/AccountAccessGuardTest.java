@@ -45,7 +45,7 @@ class AccountAccessGuardTest {
                 () -> guard.requireAccessible(1L));
 
         assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
-        verify(tokenSessionService).revoke(1L);
+        verify(tokenSessionService).revokeAll(1L);
     }
 
     @Test

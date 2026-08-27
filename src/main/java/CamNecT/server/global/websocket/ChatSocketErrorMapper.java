@@ -7,6 +7,7 @@ import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.BaseErrorCode;
 import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
+import CamNecT.server.global.common.util.RedisFailureDetector;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.ConstraintViolationException;
 import lombok.RequiredArgsConstructor;
@@ -58,6 +59,9 @@ public class ChatSocketErrorMapper {
     }
 
     private BaseErrorCode resolveErrorCode(Throwable throwable) {
+        if (RedisFailureDetector.isRedisFailure(throwable)) {
+            return ErrorCode.REDIS_UNAVAILABLE;
+        }
         Throwable current = throwable;
         int depth = 0;
         while (current != null && depth++ < MAX_CAUSE_DEPTH) {

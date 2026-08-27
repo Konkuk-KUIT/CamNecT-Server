@@ -45,6 +45,7 @@ public class CommentServiceImpl implements CommentService {
     private final CommentLikesRepository commentLikesRepository;
     private final UserRepository userRepository;
     private final AcceptedCommentsRepository acceptedCommentsRepository;
+    private final CommunityPostAccessPolicy postAccessPolicy;
     private final AuthorAssembler  authorAssembler;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -57,6 +58,7 @@ public class CommentServiceImpl implements CommentService {
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
         requirePublished(post);
+        postAccessPolicy.requireReadable(userId, post);
 
         Comments parent = null;
         if (req.parentCommentId() != null) {
@@ -183,6 +185,7 @@ public class CommentServiceImpl implements CommentService {
 
         requirePublished(comment.getPost());
         requirePublished(comment);
+        postAccessPolicy.requireReadable(userId, comment.getPost());
 
         boolean liked;
         if (commentLikesRepository.existsByComment_IdAndUserId(commentId, userId)) {
@@ -203,10 +206,13 @@ public class CommentServiceImpl implements CommentService {
 
     @Transactional(readOnly = true)
     @Override
-    public CommentListResponse list(Long postId, Long cursorId, int size) {
+    public CommentListResponse list(Long userId, Long postId, Long cursorId, int size) {
+        if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
         requirePublished(post);
+        postAccessPolicy.requireReadable(userId, post);
 
         if (cursorId != null && cursorId <= 0) {
             throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
@@ -300,6 +306,7 @@ public class CommentServiceImpl implements CommentService {
                 parentId,
                 content,
                 likeCount,
+                c.getCreatedAt(),
                 author
         );
     }

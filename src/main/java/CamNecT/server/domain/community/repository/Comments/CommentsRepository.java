@@ -19,6 +19,10 @@ public interface CommentsRepository extends JpaRepository<Comments, Long> {
     @Query("select c from Comments c where c.id = :commentId")
     Optional<Comments> findByIdForUpdate(@Param("commentId") Long commentId);
 
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Comments c where c.post.id = :postId order by c.id asc")
+    List<Comments> findAllByPostIdForUpdate(@Param("postId") Long postId);
+
     @Query("""
         select c
         from Comments c
@@ -42,9 +46,13 @@ public interface CommentsRepository extends JpaRepository<Comments, Long> {
             Collection<CommentStatus> statuses
     );
 
-    // 게시글 삭제 시: 댓글 하드 삭제
+    // 게시글 삭제 시: 자기참조 FK를 지키기 위해 대댓글을 먼저 삭제한다.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("delete from Comments c where c.post.id = :postId")
-    void deleteByPostId(@Param("postId") Long postId);
+    @Query("delete from Comments c where c.post.id = :postId and c.parent is not null")
+    void deleteRepliesByPostId(@Param("postId") Long postId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from Comments c where c.post.id = :postId and c.parent is null")
+    void deleteRootsByPostId(@Param("postId") Long postId);
 
 }

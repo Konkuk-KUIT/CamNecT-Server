@@ -159,6 +159,20 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception e, HttpServletRequest req) {
+        if (RedisFailureDetector.isRedisFailure(e)) {
+            log.error("[RedisUnavailable] {} {} | code={}",
+                    req.getMethod(),
+                    req.getRequestURI(),
+                    ErrorCode.REDIS_UNAVAILABLE.getCode(),
+                    e);
+            return ResponseEntity.status(ErrorCode.REDIS_UNAVAILABLE.getHttpStatus())
+                    .header("Retry-After", "3")
+                    .body(new ErrorResponse(
+                            ErrorCode.REDIS_UNAVAILABLE.getHttpStatus().value(),
+                            ErrorCode.REDIS_UNAVAILABLE.getCode(),
+                            ErrorCode.REDIS_UNAVAILABLE.getMessage()
+                    ));
+        }
         log.error("[UnexpectedException] {} {}", req.getMethod(), req.getRequestURI(), e);
         return response(ErrorCode.INTERNAL_ERROR);
     }

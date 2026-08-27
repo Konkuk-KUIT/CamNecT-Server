@@ -3,6 +3,7 @@ package CamNecT.server.domain.chat.service;
 import CamNecT.server.domain.chat.dto.room.ChatRoomListUpdateDto;
 import CamNecT.server.domain.chat.event.ChatMessageCommittedEvent;
 import CamNecT.server.domain.chat.event.ChatReadCommittedEvent;
+import CamNecT.server.domain.chat.event.ChatRoomClosedCommittedEvent;
 import CamNecT.server.domain.chat.repository.ChatRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,6 +66,11 @@ public class ChatRealtimeDeliveryService {
             log.warn("[chat-realtime] read room-list payload query failed. roomId={}, reader={}",
                     roomId, event.readerId(), e);
         }
+    }
+
+    public void deliverRoomClosed(ChatRoomClosedCommittedEvent event) {
+        Long roomId = event.closedEvent().roomId();
+        sendSafely("/sub/chat/room/" + roomId, event.closedEvent(), "room-close");
     }
 
     private ChatRoomListUpdateDto roomListUpdate(

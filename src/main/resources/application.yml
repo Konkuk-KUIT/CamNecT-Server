@@ -34,6 +34,14 @@ app:
       expiration-minutes: 30
       mail:
         subject: "CamNecT 이메일 인증번호"
+  redis:
+    client:
+      auto-reconnect: ${REDIS_AUTO_RECONNECT:true}
+      reject-commands-while-disconnected: ${REDIS_REJECT_COMMANDS_WHILE_DISCONNECTED:true}
+      keep-alive-enabled: ${REDIS_KEEP_ALIVE_ENABLED:true}
+      keep-alive-idle: ${REDIS_KEEP_ALIVE_IDLE:30s}
+      keep-alive-interval: ${REDIS_KEEP_ALIVE_INTERVAL:10s}
+      keep-alive-count: ${REDIS_KEEP_ALIVE_COUNT:3}
   profile:
     image:
       max-file-size-mb: 20
@@ -123,7 +131,7 @@ spring:
       port: ${REDIS_PORT:6379}
       username: ${REDIS_USERNAME:}
       password: ${REDIS_PASSWORD:}
-      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
       timeout: ${REDIS_TIMEOUT:2s}
       ssl:
         enabled: ${REDIS_SSL_ENABLED:false}
@@ -178,8 +186,8 @@ server:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-token-expiration-ms: 172800000 #2day #360000        # 6min
-  refresh-token-expiration-ms: 1209600000   # 14day
+  access-token-expiration-ms: ${JWT_ACCESS_TOKEN_EXPIRATION_MS:172800000} # current default: 2 days; shorten after frontend refresh rollout
+  refresh-token-expiration-ms: ${JWT_REFRESH_TOKEN_EXPIRATION_MS:1209600000} # default: 14 days
   verification-token-expiration-ms: 259200000 #3day
 
 security:

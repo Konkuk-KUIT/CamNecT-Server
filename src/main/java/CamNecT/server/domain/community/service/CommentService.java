@@ -17,5 +17,5 @@ public interface CommentService {
 
     ToggleCommentLikeResponse toggleLike(Long userId, Long commentId);
 
-    CommentListResponse list(Long postId, Long cursorId, int size);
+    CommentListResponse list(Long userId, Long postId, Long cursorId, int size);
 }

@@ -27,6 +27,7 @@ public class TagController {
                     scope=COMMUNITY_QUESTION 이면 '채택 상태' 카테고리 추가,
                     scope=ACTIVITY_RECRUIT 이면 '모집 상태' 카테고리 추가.
                     """)
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true)
     @GetMapping
     public ApiResponse<List<TagCategoryDto>> list(
             @RequestParam(required = false) TagScope scope

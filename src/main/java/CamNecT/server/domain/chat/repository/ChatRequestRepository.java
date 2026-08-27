@@ -97,19 +97,19 @@ public interface ChatRequestRepository extends JpaRepository<ChatRequest, Long> 
             @Param("status") ChatRequest.RequestStatus status
     );
 
-    //팀원모집 마감에서 미승인자들 일괄 모집 마감 알림 발송용
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select cr
             from ChatRequest cr
-            join fetch cr.requester req
             where cr.type = :type
               and cr.recruitmentId = :recruitmentId
-              and cr.status <> :accepted
+              and cr.status = :status
+            order by cr.id asc
             """)
-    List<ChatRequest> findAllNonAcceptedTeamRecruitFetchRequester(
+    List<ChatRequest> findAllByRecruitmentIdAndTypeAndStatusForUpdate(
             @Param("type") ChatRequest.RequestType type,
             @Param("recruitmentId") Long recruitmentId,
-            @Param("accepted") ChatRequest.RequestStatus accepted
+            @Param("status") ChatRequest.RequestStatus status
     );
 
     @Query("""

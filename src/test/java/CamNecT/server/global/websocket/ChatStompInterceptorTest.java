@@ -104,6 +104,10 @@ class ChatStompInterceptorTest {
     }
 
     private HashMap<String, Object> sessionAttributes() {
-        return new HashMap<>(Map.of("userId", 1L, "accessTokenHash", "hash"));
+        return new HashMap<>(Map.of(
+                "userId", 1L,
+                "sessionId", "session-id",
+                "accessTokenHash", "hash"
+        ));
     }
 }

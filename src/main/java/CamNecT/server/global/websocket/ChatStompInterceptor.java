@@ -46,11 +46,12 @@ public class ChatStompInterceptor implements ChannelInterceptor {
 
                 Long userId = jwtUtil.getUserId(token);
                 accountAccessGuard.requireActive(userId);
-                tokenSessionService.requireActiveAccess(userId, token);
+                String sessionId = tokenSessionService.requireActiveAccess(userId, token);
                 if (accessor.getSessionAttributes() == null) {
                     throw new CustomException(AuthErrorCode.INVALID_TOKEN);
                 }
                 accessor.getSessionAttributes().put("userId", userId);
+                accessor.getSessionAttributes().put("sessionId", sessionId);
                 accessor.getSessionAttributes().put("accessTokenHash", tokenSessionService.accessTokenHash(token));
 
                 accessor.setUser(new StompPrincipal(userId.toString()));
@@ -85,10 +86,11 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             Long userId = Long.valueOf(userIdValue.toString());
             accountAccessGuard.requireActive(userId);
             Object tokenHash = accessor.getSessionAttributes().get("accessTokenHash");
-            if (tokenHash == null) {
+            Object sessionId = accessor.getSessionAttributes().get("sessionId");
+            if (tokenHash == null || sessionId == null) {
                 throw new CustomException(AuthErrorCode.INVALID_TOKEN);
             }
-            tokenSessionService.requireActiveAccessHash(userId, tokenHash.toString());
+            tokenSessionService.requireActiveAccessHash(userId, sessionId.toString(), tokenHash.toString());
             return userId;
         } catch (NumberFormatException e) {
             throw new CustomException(AuthErrorCode.INVALID_TOKEN, e);

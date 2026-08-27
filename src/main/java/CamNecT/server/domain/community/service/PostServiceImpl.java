@@ -78,6 +78,7 @@ public class PostServiceImpl implements PostService {
     private final UploadTicketRepository uploadTicketRepository;
 
     private final PostAttachmentsService postAttachmentsService;
+    private final CommunityPostAccessPolicy postAccessPolicy;
     private final PointService pointService;
     private final PresignEngine presignEngine;
 
@@ -87,6 +88,10 @@ public class PostServiceImpl implements PostService {
     @Transactional
     @Override
     public CreatePostResponse create(Long userId, CreatePostRequest req) {
+        if (Boolean.TRUE.equals(req.anonymous())) {
+            throw new CustomException(CommunityErrorCode.ANONYMOUS_POST_NOT_SUPPORTED);
+        }
+
         Users user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
 
@@ -95,7 +100,7 @@ public class PostServiceImpl implements PostService {
 
         PostAccessType accessType = (req.boardCode() == BoardCode.QUESTION) ? PostAccessType.POINT_REQUIRED : PostAccessType.FREE;
 
-        Posts post = Posts.create(board, user, req.title().trim(), req.content(), Boolean.TRUE.equals(req.anonymous()));
+        Posts post = Posts.create(board, user, req.title().trim(), req.content(), false);
         post.applyAccess(accessType);
 
         Posts saved = postsRepository.save(post);
@@ -181,9 +186,15 @@ public class PostServiceImpl implements PostService {
                 && acceptedCommentsRepository.existsByPost_Id(postId)) {
             throw new CustomException(CommunityErrorCode.CANNOT_DELETE_ACCEPTED_QUESTION);
         }
-        // 1) 댓글 좋아요 -> 댓글 하드 삭제 (FK 안전)
+
+        // 댓글 좋아요가 의존관계 정리 이후 다시 추가되지 않도록 댓글 행을 먼저 잠근다.
+        commentsRepository.findAllByPostIdForUpdate(postId);
+
+        // 1) 댓글 의존 관계 -> 대댓글 -> 루트 댓글 순서로 하드 삭제
         commentLikesRepository.deleteByPostId(postId);
-        commentsRepository.deleteByPostId(postId);
+        acceptedCommentsRepository.deleteByPost_Id(postId);
+        commentsRepository.deleteRepliesByPostId(postId);
+        commentsRepository.deleteRootsByPostId(postId);
 
         // 2) 게시글 좋아요/북마크/구매권한 정리
         postLikesRepository.deleteByPostId(postId);
@@ -192,9 +203,8 @@ public class PostServiceImpl implements PostService {
         postStatsRepository.deleteByPostId(postId);
 
 
-        // 3) 태그/채택 정리
+        // 3) 태그 정리
         postTagsRepository.deleteByPost_Id(postId);
-        acceptedCommentsRepository.deleteByPost_Id(postId);
 
         // 4) 첨부 정리 (S3 after-commit 삭제 포함)
         postAttachmentsService.purgeAllByPostId(postId);
@@ -269,32 +279,12 @@ public class PostServiceImpl implements PostService {
                 .map(ac -> ac.getComment().getId())
                 .orElse(null);
 
-        ///  접근권한 관련 설정파트
-        boolean payRequired = post.getBoard().getCode() == BoardCode.QUESTION && acceptedOpt.isPresent();
-
-        ContentAccessStatus accessStatus;
-        Integer requiredPoints = null;
-        Integer myPoints = null;
-
-        if (payRequired) {
-            // 작성자 무료
-            if (Objects.equals(userId, post.getUser().getUserId())) {
-                accessStatus = ContentAccessStatus.GRANTED;
-                requiredPoints = questionViewCost;
-            } else if (postAccessRepository.existsByPost_IdAndUser_UserId(postId, userId)) {
-                accessStatus = ContentAccessStatus.GRANTED;
-                requiredPoints = questionViewCost;
-            } else {
-                myPoints = pointService.getBalance(userId);
-                requiredPoints = questionViewCost;
-                accessStatus = (myPoints >= questionViewCost)
-                        ? ContentAccessStatus.NEED_PURCHASE
-                        : ContentAccessStatus.INSUFFICIENT_POINTS;
-            }
-        } else {
-            accessStatus = ContentAccessStatus.GRANTED;
-        }
-        String content = accessStatus.canReadProtectedContent() ? post.getContent() : null;
+        CommunityPostAccessPolicy.AccessDecision accessDecision =
+                postAccessPolicy.evaluate(userId, post, acceptedOpt.isPresent());
+        ContentAccessStatus accessStatus = accessDecision.status();
+        Integer requiredPoints = accessDecision.requiredPoints();
+        Integer myPoints = accessDecision.myPoints();
+        String content = accessDecision.canRead() ? post.getContent() : null;
 
         /// 글쓴이 프로필
         AuthorDto author = post.isAnonymous()
@@ -367,6 +357,7 @@ public class PostServiceImpl implements PostService {
                 post.getBoard().getCode(),
                 post.getTitle(),
                 content,
+                post.getCreatedAt(),
                 post.isAnonymous(),
                 stats.getViewCount(),
                 stats.getBookmarkCount(),
@@ -484,15 +475,14 @@ public class PostServiceImpl implements PostService {
             throw new CustomException(CommunityErrorCode.POST_NOT_PUBLISHED);
         }
 
-        boolean isQuestion = post.getBoard().getCode() == BoardCode.QUESTION;
-
-        if (!isQuestion && post.getAccessType() != PostAccessType.POINT_REQUIRED) {
+        if (!postAccessPolicy.isPaywallActive(post)) {
             int bal = pointService.getBalance(user.getUserId());
             return new PurchasePostAccessResponse(postId, ContentAccessStatus.GRANTED, bal, true);
         }
 
-        // 2) 작성자는 무료
-        if (userId.equals(post.getUser().getUserId())) {
+        // 2) 질문 작성자와 채택 답변 작성자는 무료
+        if (userId.equals(post.getUser().getUserId())
+                || postAccessPolicy.isAcceptedAnswerAuthor(userId, postId)) {
             int bal = pointService.getBalance(user.getUserId());
             return new PurchasePostAccessResponse(postId, ContentAccessStatus.GRANTED, bal, true);
         }

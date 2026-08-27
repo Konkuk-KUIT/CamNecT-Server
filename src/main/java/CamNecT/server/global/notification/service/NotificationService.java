@@ -122,7 +122,10 @@ public class NotificationService {
 
                 UserProfile p = profileMap.get(actorId);
                 if (p != null && p.getProfileImageKey() != null && !p.getProfileImageKey().isBlank()) {
-                    actorImg = publicUrlIssuer.issuePublicUrl(p.getProfileImageKey());
+                    String issuedUrl = publicUrlIssuer.issuePublicUrl(p.getProfileImageKey());
+                    if (issuedUrl != null && !issuedUrl.isBlank()) {
+                        actorImg = issuedUrl;
+                    }
                 }
             }
 
@@ -176,8 +179,9 @@ public class NotificationService {
     }
 
     private String truncate(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) return value;
-        return value.substring(0, maxLength);
+        if (value == null || value.codePointCount(0, value.length()) <= maxLength) return value;
+        int endIndex = value.offsetByCodePoints(0, maxLength);
+        return value.substring(0, endIndex);
     }
 
     private int normalizeSize(int size) {

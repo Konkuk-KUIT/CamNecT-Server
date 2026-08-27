@@ -124,7 +124,11 @@ class PasswordResetIntegrationTest {
     @Test
     void resetPasswordRejectsInvalidOrWrongTypeToken() throws Exception {
         Users user = createRecoverableUser();
-        String accessToken = jwtUtil.generateAccessToken(user.getUserId(), user.getRole());
+        String accessToken = jwtUtil.generateAccessToken(
+                user.getUserId(),
+                user.getRole(),
+                UUID.randomUUID().toString()
+        );
 
         reset(accessToken, NEW_PASSWORD)
                 .andExpect(status().isUnauthorized())
