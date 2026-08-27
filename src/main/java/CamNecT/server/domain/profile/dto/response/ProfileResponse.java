@@ -15,6 +15,7 @@ public record ProfileResponse(
         int following,
         int follower,
         Integer myPoint,
+        Boolean hasChat,
         List<PortfolioPreviewResponse> portfolioProjectList,
         List<EducationResponse> educations,
         List<ExperienceResponse> experience,
@@ -36,6 +37,5 @@ public record ProfileResponse(
     ) {
     }
 }
-
 
 

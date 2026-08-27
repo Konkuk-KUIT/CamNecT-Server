@@ -1,6 +1,7 @@
 package CamNecT.server.domain.profile.service;
 
 import CamNecT.server.domain.portfolio.repository.PortfolioRepository;
+import CamNecT.server.domain.chat.repository.ChatRoomRepository;
 import CamNecT.server.domain.profile.components.certificate.repository.CertificateRepository;
 import CamNecT.server.domain.profile.components.education.repository.EducationRepository;
 import CamNecT.server.domain.profile.components.experience.repository.ExperienceRepository;
@@ -37,6 +38,7 @@ class ProfileOnboardingStateTest {
     private final ExperienceRepository experienceRepository = mock(ExperienceRepository.class);
     private final UserProfileRepository userProfileRepository = mock(UserProfileRepository.class);
     private final UserFollowRepository userFollowRepository = mock(UserFollowRepository.class);
+    private final ChatRoomRepository chatRoomRepository = mock(ChatRoomRepository.class);
     private final PortfolioRepository portfolioRepository = mock(PortfolioRepository.class);
     private final UserTagMapRepository userTagMapRepository = mock(UserTagMapRepository.class);
     private final EducationRepository educationRepository = mock(EducationRepository.class);
@@ -55,6 +57,7 @@ class ProfileOnboardingStateTest {
                 experienceRepository,
                 userProfileRepository,
                 userFollowRepository,
+                chatRoomRepository,
                 portfolioRepository,
                 userTagMapRepository,
                 educationRepository,

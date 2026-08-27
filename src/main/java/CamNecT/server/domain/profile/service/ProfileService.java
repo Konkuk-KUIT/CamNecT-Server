@@ -7,6 +7,9 @@ import CamNecT.server.domain.profile.components.education.dto.response.Education
 import CamNecT.server.domain.profile.components.education.repository.EducationRepository;
 import CamNecT.server.domain.profile.components.experience.dto.response.ExperienceResponse;
 import CamNecT.server.domain.profile.components.experience.repository.ExperienceRepository;
+import CamNecT.server.domain.chat.model.ChatRequest;
+import CamNecT.server.domain.chat.model.ChatRoom;
+import CamNecT.server.domain.chat.repository.ChatRoomRepository;
 import CamNecT.server.domain.portfolio.dto.response.PortfolioPreviewResponse;
 import CamNecT.server.domain.portfolio.repository.PortfolioRepository;
 import CamNecT.server.domain.profile.dto.request.UpdateOnboardingRequest;
@@ -68,6 +71,7 @@ public class ProfileService {
     private final ExperienceRepository experienceRepository;
     private final UserProfileRepository userProfileRepository;
     private final UserFollowRepository userFollowRepository;
+    private final ChatRoomRepository chatRoomRepository;
     private final PortfolioRepository portfolioRepository;
     private final UserTagMapRepository userTagMapRepository;
     private final EducationRepository educationRepository;
@@ -104,6 +108,13 @@ public class ProfileService {
         int following = showFollower ? userFollowRepository.countByFollowerId(profileUserId) : 0;
         int follower = showFollower ? userFollowRepository.countByFollowingId(profileUserId) : 0;
         int myPoints = isOwner ? pointService.getBalance(profileUserId) : 0;
+        boolean hasChat = !isOwner && chatRoomRepository.findActiveChatPartnerIds(
+                loginUserId,
+                List.of(profileUserId),
+                ChatRoom.RoomStatus.OPEN,
+                ChatRequest.RequestStatus.ACCEPTED,
+                ChatRequest.RequestType.COFFEE_CHAT
+        ).contains(profileUserId);
 
         List<PortfolioPreviewResponse> portfolioPreviewResponses =
                 portfolioRepository.findPreviewsByUserId(profileUserId).stream()
@@ -151,6 +162,7 @@ public class ProfileService {
                 following,
                 follower,
                 myPoints,
+                hasChat,
                 portfolioPreviewResponses,
                 educationResponses,
                 experienceList,
