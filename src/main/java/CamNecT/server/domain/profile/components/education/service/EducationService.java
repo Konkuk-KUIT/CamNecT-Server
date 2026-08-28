@@ -5,6 +5,8 @@ import CamNecT.server.domain.profile.components.education.dto.request.EducationR
 import CamNecT.server.domain.profile.components.education.dto.response.EducationResponse;
 import CamNecT.server.domain.profile.components.education.model.Education;
 import CamNecT.server.domain.profile.components.education.repository.EducationRepository;
+import CamNecT.server.domain.profile.components.institutions.model.Campus;
+import CamNecT.server.domain.profile.components.institutions.repository.CampusRepository;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import CamNecT.server.domain.profile.components.institutions.repository.InstitutionRepository;
 import CamNecT.server.domain.users.model.Users;
@@ -23,6 +25,7 @@ public class EducationService {
 
     private final EducationRepository educationRepository;
     private final InstitutionRepository institutionRepository;
+    private final CampusRepository campusRepository;
     private final ProfileComponentAccessGuard accessGuard;
 
     @Transactional
@@ -31,11 +34,13 @@ public class EducationService {
 
         Institutions institution = institutionRepository.findById(request.institutionId())
                 .orElseThrow(() -> new CustomException(UserErrorCode.INSTITUTION_NOT_FOUND));
+        Campus campus = requireActiveCampus(request.campusId(), institution.getInstitutionId());
 
 
         Education education = Education.builder()
                 .user(user)
                 .institution(institution)
+                .campus(campus)
                 .startDate(request.startDate())
                 .endDate(request.endDate())
                 .status(request.status())
@@ -66,10 +71,12 @@ public class EducationService {
 
         Institutions institution = institutionRepository.findById(request.institutionId())
                 .orElseThrow(() -> new CustomException(UserErrorCode.INSTITUTION_NOT_FOUND));
+        Campus campus = requireActiveCampus(request.campusId(), institution.getInstitutionId());
 
 
         education.updateEducation(
                 institution,
+                campus,
                 request.startDate(),
                 request.endDate(),
                 request.status(),
@@ -87,5 +94,10 @@ public class EducationService {
             throw new CustomException(UserErrorCode.EDUCATION_FORBIDDEN);
         }
         educationRepository.delete(education);
+    }
+
+    private Campus requireActiveCampus(Long campusId, Long institutionId) {
+        return campusRepository.findActiveByIdAndInstitutionId(campusId, institutionId)
+                .orElseThrow(() -> new CustomException(UserErrorCode.CAMPUS_NOT_FOUND));
     }
 }
