@@ -34,6 +34,7 @@ import CamNecT.server.global.common.response.InvalidPropertiesErrorResponse;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -171,7 +172,7 @@ public class AuthController {
     @PostMapping("/logout")
     public void logout(
             @UserId Long loginUserId,
-            @SessionId String sessionId,
+            @Parameter(hidden = true) @SessionId String sessionId,
             @RequestBody(required = false) @Valid LogoutRequest req
     ) {
         loginService.logout(loginUserId, sessionId, req == null ? null : req.deviceId());
