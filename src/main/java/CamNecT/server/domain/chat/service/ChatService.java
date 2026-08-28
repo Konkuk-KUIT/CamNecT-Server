@@ -30,7 +30,9 @@ import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.repository.UserTagMapRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
 import CamNecT.server.domain.profile.components.majors.model.Majors;
@@ -87,6 +89,7 @@ public class ChatService {
     private final ApplicationEventPublisher eventPublisher;
     private final ChatPresenceService presenceService;
     private final PointService pointService;
+    private final AccountAccessGuard accountAccessGuard;
 
     /*
       1. 커피챗 요청 보내기
@@ -107,10 +110,18 @@ public class ChatService {
             throw new CustomException(CoffeeChatErrorCode.SELF_REQUEST_NOT_ALLOWED);
         }
 
-        lockUsersInOrder(requesterId, receiverId);
-        Users requester = requireAuthenticatedUser(requesterId);
-        Users receiver = userRepository.findById(receiverId)
-                .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.RECEIVER_NOT_FOUND));
+        Users requester;
+        Users receiver;
+        if (requesterId < receiverId) {
+            requester = accountAccessGuard.requireAccessibleForUpdate(requesterId);
+            receiver = userRepository.findByIdForUpdate(receiverId)
+                    .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.RECEIVER_NOT_FOUND));
+        } else {
+            Optional<Users> lockedReceiver = userRepository.findByIdForUpdate(receiverId);
+            requester = accountAccessGuard.requireAccessibleForUpdate(requesterId);
+            receiver = lockedReceiver
+                    .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.RECEIVER_NOT_FOUND));
+        }
 
         if (chatRequestRepository.existsByRequester_UserIdAndReceiver_UserIdAndStatusAndType(
                 requesterId, receiverId, ChatRequest.RequestStatus.WAITING, ChatRequest.RequestType.COFFEE_CHAT)
@@ -172,7 +183,7 @@ public class ChatService {
      */
     @Transactional
     public void respondToRequest(Long requestId, Long userId, boolean isAccepted) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         ChatRequest request = chatRequestRepository.findByIdForUpdate(requestId)
                 .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.REQUEST_NOT_FOUND));
 
@@ -193,7 +204,7 @@ public class ChatService {
         if (isAccepted) {
             request.accept();
             Long roomId = createChatRoom(request);
-            tryRewardCoffeeChatAcceptedPoint(request);
+            rewardCoffeeChatAcceptedPoint(request);
             publishAcceptedNotification(request, roomId);
         } else {
             request.reject();
@@ -306,45 +317,28 @@ public class ChatService {
      2-1. 채팅방 생성 (수락 시 자동 호출)
      */
     private Long createChatRoom(ChatRequest request) {
-        // 1) 이미 생성된 방이 있으면 그대로 반환 (중복 호출/재시도 대비)
+        // respondToRequest가 request X-lock을 보유하므로 같은 요청의 방 생성은 직렬화된다.
         Optional<ChatRoom> existing = chatRoomRepository.findByRequest_Id(request.getId());
         if (existing.isPresent()) return existing.get().getId();
 
-        // 2) 없으면 생성 시도 (동시성 대비: 유니크 터지면 다시 조회)
-        try {
-            ChatRoom chatRoom = ChatRoom.createRoom(request, request.getRequester(), request.getReceiver());
-            ChatRoom saved = chatRoomRepository.save(chatRoom);
-            return saved.getId();
-        } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            // request_id UNIQUE에 걸린 케이스 → 이미 누가 만들었음
-            return chatRoomRepository.findByRequest_Id(request.getId())
-                    .map(ChatRoom::getId)
-                    .orElseThrow(() -> e);
-        }
+        ChatRoom chatRoom = ChatRoom.createRoom(request, request.getRequester(), request.getReceiver());
+        ChatRoom saved = chatRoomRepository.save(chatRoom);
+        return saved.getId();
     }
 
     @Transactional
     public List<ChatMessageResponseDto> getChatHistory(Long roomId, Long userId) {
-        Users reader = requireAuthenticatedUser(userId);
-        ChatRoom room = chatRoomRepository.findByUserIdWithDetails(roomId, userId)
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+        chatRoomRepository.findByUserIdWithDetails(roomId, userId)
                 .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.CHATROOM_NOT_FOUND));
 
-        markAllAsRead(roomId, reader);
-
-        List<Chat> chatHistory = chatRepository.findTop1000ByRoomId(
-                roomId, PageRequest.of(0, 1000)
-        );
-
-        return chatHistory.stream()
-                .sorted(Comparator.comparing(Chat::getId))
-                .map(ChatMessageResponseDto::toDto)
-                .toList();
+        return loadHistoryAndMarkRead(roomId, userId);
     }
 
 
     @Transactional
     public ChatRoomWithDetailDto getRoomWithDetails(Long roomId, Long userId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         ChatRoom room = chatRoomRepository.findByUserIdWithDetails(roomId, userId)
                 .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.CHATROOM_NOT_FOUND));
 
@@ -371,7 +365,7 @@ public class ChatService {
                 .map(Tag::getName)
                 .toList();
 
-        List<ChatMessageResponseDto> chatHistory = this.getChatHistory(roomId, userId);
+        List<ChatMessageResponseDto> chatHistory = loadHistoryAndMarkRead(roomId, userId);
 
         String title = resolveRequestTitle(room.getRequest());
 
@@ -456,13 +450,31 @@ public class ChatService {
     //   기존 unread 전부 읽음 처리
     @Transactional
     public void markAllAsRead(Long roomId, Users reader) {
-
-        if (reader == null || reader.getUserId() == null
-                || !chatRoomRepository.existsAccessibleByUserId(roomId, reader.getUserId())) {
+        if (reader == null || reader.getUserId() == null) {
             throw new CustomException(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);
         }
 
-        List<Chat> unreadMessages = chatRepository.findUnreadMessages(roomId, reader.getUserId());
+        Long readerId = reader.getUserId();
+        accountAccessGuard.requireAccessibleForUpdate(readerId);
+        if (!chatRoomRepository.existsAccessibleByUserId(roomId, readerId)) {
+            throw new CustomException(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);
+        }
+
+        markAllAsReadAfterAccessCheck(roomId, readerId);
+    }
+
+    private List<ChatMessageResponseDto> loadHistoryAndMarkRead(Long roomId, Long readerId) {
+        markAllAsReadAfterAccessCheck(roomId, readerId);
+
+        return chatRepository.findTop1000ByRoomId(roomId, PageRequest.of(0, 1000)).stream()
+                .sorted(Comparator.comparing(Chat::getId))
+                .map(ChatMessageResponseDto::toDto)
+                .toList();
+    }
+
+    private void markAllAsReadAfterAccessCheck(Long roomId, Long readerId) {
+
+        List<Chat> unreadMessages = chatRepository.findUnreadMessages(roomId, readerId);
 
         if (unreadMessages.isEmpty()) {
             return;
@@ -487,7 +499,7 @@ public class ChatService {
         String lastTime = unreadMessages.getLast().getCreatedAt().toString();
         eventPublisher.publishEvent(new ChatReadCommittedEvent(
                 chatReadEvent,
-                reader.getUserId(),
+                readerId,
                 lastContent,
                 lastTime
         ));
@@ -504,6 +516,8 @@ public class ChatService {
         }
         log.info("[CHAT-SEND] === 메세지 전송 시작 === RoomID: {}, SenderID: {}", request.roomId(), senderId);
 
+        Users sender = accountAccessGuard.requireAccessibleForUpdate(senderId);
+
         //예외처리
         ChatRoom room = chatRoomRepository.findByIdForUpdate(request.roomId())
                 .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.CHATROOM_NOT_FOUND));
@@ -514,8 +528,6 @@ public class ChatService {
         }
 
         //보내는 사람과 받는 사람 분류
-        Users sender = requireAuthenticatedUser(senderId);
-
         boolean isRequester = Objects.equals(room.getRequester().getUserId(), sender.getUserId());
         boolean isReceiver = Objects.equals(room.getReceiver().getUserId(), sender.getUserId());
         if (!isRequester && !isReceiver) {
@@ -701,7 +713,7 @@ public class ChatService {
 
     @Transactional
     public void rejectAllCoffeeChatRequests(Long userId, ChatRequest.RequestType requestType) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         List<ChatRequest> requests = chatRequestRepository.findAllByReceiver_UserIdAndTypeAndStatus(
                 userId, requestType, ChatRequest.RequestStatus.WAITING);
 
@@ -710,7 +722,7 @@ public class ChatService {
 
     @Transactional
     public void rejectAllTeamRecruitRequestsByRecruitment(Long userId, Long recruitmentId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         List<ChatRequest> requests = chatRequestRepository.findAllByReceiver_UserIdAndTypeAndRecruitmentIdAndStatus(
                 userId,
                 ChatRequest.RequestType.TEAM_RECRUIT,
@@ -722,7 +734,7 @@ public class ChatService {
     }
 
     public void closeChatRoom(Long roomId, Long userId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         ChatRoom room = chatRoomRepository.findByUserIdWithDetailsForUpdate(roomId, userId)
                 .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.CHATROOM_NOT_FOUND));
         room.closeRoom();
@@ -736,7 +748,7 @@ public class ChatService {
     }
 
     public void exitOfChatRoom(Long roomId, Long userId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         ChatRoom room = chatRoomRepository.findByUserIdWithDetailsForUpdate(roomId, userId)
                 .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.CHATROOM_NOT_FOUND));
         room.leave(userId);
@@ -746,6 +758,7 @@ public class ChatService {
             throw new CustomException(CoffeeChatErrorCode.REQUESTER_NOT_FOUND);
         }
         request.closeRequest();
+        eventPublisher.publishEvent(new ChatRoomClosedCommittedEvent(roomId));
 
     }
 
@@ -764,20 +777,15 @@ public class ChatService {
         }
     }
 
-    private void tryRewardCoffeeChatAcceptedPoint(ChatRequest request) {
+    private void rewardCoffeeChatAcceptedPoint(ChatRequest request) {
         Long requestId = request.getId();
         Long targetUserId = (request.getRequester() == null) ? null : request.getRequester().getUserId();
 
         if (requestId == null || targetUserId == null) {
-            log.warn("[coffeechat] skip point reward. requestId={}, targetUserId={}", requestId, targetUserId);
-            return;
+            throw new CustomException(ErrorCode.INTERNAL_ERROR);
         }
-        try {
-            pointService.earnPoint(targetUserId, rewardCoffeeChatAccepted,
-                    PointEvent.coffeeChatAccepted(targetUserId, request.getId()));
-        } catch (Exception ex) {
-            log.warn("[coffeechat] point reward failed. requestId={}, userId={}", requestId, targetUserId, ex);
-        }
+        pointService.earnPoint(targetUserId, rewardCoffeeChatAccepted,
+                PointEvent.coffeeChatAccepted(targetUserId, requestId));
     }
 
     private List<Long> normalizeTagIds(List<Long> tagIds) {
@@ -798,13 +806,6 @@ public class ChatService {
             throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
         return user;
-    }
-
-    private void lockUsersInOrder(Long firstUserId, Long secondUserId) {
-        long first = Math.min(firstUserId, secondUserId);
-        long second = Math.max(firstUserId, secondUserId);
-        userRepository.lockUserRow(first);
-        if (first != second) userRepository.lockUserRow(second);
     }
 
     private String resolveRequestTitle(ChatRequest request) {

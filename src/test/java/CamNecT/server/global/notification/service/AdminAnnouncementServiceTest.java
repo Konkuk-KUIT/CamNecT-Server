@@ -9,9 +9,14 @@ import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.notification.dto.request.AdminAnnouncementRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.SliceImpl;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.LongStream;
 
 import static CamNecT.server.global.notification.dto.request.AdminAnnouncementRequest.TargetType.ALL;
 import static CamNecT.server.global.notification.dto.request.AdminAnnouncementRequest.TargetType.USERS;
@@ -19,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -100,5 +106,46 @@ class AdminAnnouncementServiceTest {
 
         assertThat(queued).isEqualTo(1L);
         verify(batchService).dispatch(1L, request, List.of(2L));
+    }
+
+    @Test
+    void sendAllUsesAnAscendingKeysetAcrossMoreThanOneBatch() {
+        AdminAnnouncementRequest request = new AdminAnnouncementRequest(
+                "message",
+                "/announcements/1",
+                ALL,
+                null
+        );
+        Pageable firstPage = PageRequest.of(0, 500);
+        List<Long> firstBatch = LongStream.rangeClosed(2L, 501L).boxed().toList();
+        List<Long> secondBatch = List.of(502L);
+
+        when(userRepository.findUserIdsByStatusAndUserIdGreaterThan(
+                UserStatus.ACTIVE, 0L, firstPage
+        )).thenReturn(new SliceImpl<>(firstBatch, firstPage, true));
+        when(userRepository.findUserIdsByStatusAndUserIdGreaterThan(
+                UserStatus.ACTIVE, 501L, firstPage
+        )).thenReturn(new SliceImpl<>(secondBatch, firstPage, false));
+        when(batchService.dispatch(1L, request, firstBatch)).thenReturn(500L);
+        when(batchService.dispatch(1L, request, secondBatch)).thenReturn(1L);
+
+        long queued = service.send(1L, request);
+
+        assertThat(queued).isEqualTo(501L);
+        ArgumentCaptor<Long> cursorCaptor = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(userRepository, times(2)).findUserIdsByStatusAndUserIdGreaterThan(
+                org.mockito.ArgumentMatchers.eq(UserStatus.ACTIVE),
+                cursorCaptor.capture(),
+                pageableCaptor.capture()
+        );
+        assertThat(cursorCaptor.getAllValues()).containsExactly(0L, 501L);
+        assertThat(pageableCaptor.getAllValues())
+                .allSatisfy(pageable -> {
+                    assertThat(pageable.getPageNumber()).isZero();
+                    assertThat(pageable.getPageSize()).isEqualTo(500);
+                });
+        verify(batchService).dispatch(1L, request, firstBatch);
+        verify(batchService).dispatch(1L, request, secondBatch);
     }
 }

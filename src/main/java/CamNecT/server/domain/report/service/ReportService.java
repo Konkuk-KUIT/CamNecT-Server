@@ -19,9 +19,11 @@ import CamNecT.server.domain.report.repository.UserReportPenaltyRepository;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.BaseErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ReportErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
@@ -33,7 +35,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.hibernate.exception.ConstraintViolationException;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -48,11 +52,15 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ReportService {
 
+    private static final String DUPLICATE_REPORT_CONSTRAINT = "uk_report_reporter_case_slot";
+    private static final String TARGET_INTEGRITY_QUARANTINE_PREFIX = "[TARGET_INTEGRITY_QUARANTINED]";
+
     private final ReportRepository reportRepository;
     private final ReportEvidenceRepository evidenceRepository;
     private final ReportCaseRepository reportCaseRepository;
     private final UserReportPenaltyRepository penaltyRepository;
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final PresignEngine presignEngine;
     private final ReportAttachmentService reportAttachmentService;
     private final PostService postService;
@@ -74,15 +82,19 @@ public class ReportService {
     /**
      * 1. 신고 접수
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long createReport(Long reporterId, ReportCreateRequest dto) {
+        if (reporterId == null) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+        }
         List<String> evidenceKeys = dto.evidenceImageKeys() == null ? List.of() : dto.evidenceImageKeys();
-        ReportTargetResolver.ResolvedTarget target = reportTargetResolver.resolve(reporterId, dto);
-        if (reporterId.equals(target.author().getUserId())) {
+        ReportTargetResolver.ResolvedTarget initialTarget = reportTargetResolver.resolve(reporterId, dto);
+        if (reporterId.equals(initialTarget.author().getUserId())) {
             throw new CustomException(ReportErrorCode.REPORT_SELF_NOT_ALLOWED);
         }
 
-        userRepository.lockUserRow(target.author().getUserId());
+        lockActorAndOtherUserInOrder(reporterId, initialTarget.author().getUserId());
+        ReportTargetResolver.ResolvedTarget target = reportTargetResolver.resolveForCreateLocked(reporterId, dto);
         Users targetAuthor = userRepository.findById(target.author().getUserId())
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
@@ -93,6 +105,9 @@ public class ReportService {
                         target.targetId(),
                         dto.postType()
                 )));
+
+        validateExistingCase(reportCase, target, dto.postType());
+        rejectQuarantinedCase(reportCase);
 
         if (reportCase.getStatus() != ReportStatus.RECEIVED) {
             throw new CustomException(ReportErrorCode.REPORT_CASE_CLOSED);
@@ -116,7 +131,10 @@ public class ReportService {
         try {
             savedReport = reportRepository.saveAndFlush(report);
         } catch (DataIntegrityViolationException e) {
-            throw new CustomException(ReportErrorCode.REPORT_DUPLICATE);
+            if (isDuplicateReportSubmission(e)) {
+                throw new CustomException(ReportErrorCode.REPORT_DUPLICATE, e);
+            }
+            throw e;
         }
 
         reportCase.addReport();
@@ -133,6 +151,18 @@ public class ReportService {
         return savedReport.getReportId();
     }
 
+    private boolean isDuplicateReportSubmission(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof ConstraintViolationException constraintViolation
+                    && DUPLICATE_REPORT_CONSTRAINT.equalsIgnoreCase(constraintViolation.getConstraintName())) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
     /**
      * 2. 관리자용 목록 조회
      */
@@ -145,9 +175,9 @@ public class ReportService {
     /**
      * 3. 관리자 신고 처리 (승인/반려)
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void processReport(Long userId, Long caseId, ReportProcessRequest request) {
-        validateAdmin(userId);
+        validateAdminRoleWithoutLoading(userId);
 
         ReportStatus newStatus = request.status();
         if (newStatus != ReportStatus.RESOLVED && newStatus != ReportStatus.REJECTED) {
@@ -157,9 +187,13 @@ public class ReportService {
             throw new CustomException(ReportErrorCode.REPORT_CATEGORY_REQUIRED);
         }
 
-        ReportCase caseSnapshot = reportCaseRepository.findById(caseId)
+        Long reportedUserId = reportCaseRepository.findReportedUserIdByCaseId(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
-        userRepository.lockUserRow(caseSnapshot.getReportedUser().getUserId());
+        Users lockedAdmin = lockActorAndOtherUserInOrder(userId, reportedUserId);
+        if (lockedAdmin.getRole() != UserRole.ADMIN) {
+            throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        }
+
         ReportCase reportCase = reportCaseRepository.findByIdForUpdate(caseId)
                 .orElseThrow(() -> new CustomException(ReportErrorCode.REPORT_NOT_FOUND));
 
@@ -172,6 +206,8 @@ public class ReportService {
         LocalDateTime now = LocalDateTime.now(clock);
 
         if (newStatus == ReportStatus.RESOLVED) {
+            rejectQuarantinedCase(reportCase);
+            reportTargetResolver.validateStoredCase(reportCase, submissions);
             reportCase.decideCategory(request.decidedCategory());
             PenaltyType penaltyType = userReportPenaltyService.applyPenalty(reportCase);
             deleteReportedContent(userId, reportCase);
@@ -187,6 +223,48 @@ public class ReportService {
         submissions.forEach(report -> report.updateStatus(ReportStatus.REJECTED));
     }
 
+    private void validateAdminRoleWithoutLoading(Long userId) {
+        if (userId == null || !userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN)) {
+            if (userId == null || !userRepository.existsById(userId)) {
+                throw new CustomException(UserErrorCode.USER_NOT_FOUND);
+            }
+            throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        }
+    }
+
+    private Users lockActorAndOtherUserInOrder(Long actorId, Long otherUserId) {
+        if (actorId <= otherUserId) {
+            Users actor = accountAccessGuard.requireAccessibleForUpdate(actorId);
+            if (!actorId.equals(otherUserId)) {
+                userRepository.lockUserRow(otherUserId);
+            }
+            return actor;
+        }
+
+        userRepository.lockUserRow(otherUserId);
+        return accountAccessGuard.requireAccessibleForUpdate(actorId);
+    }
+
+    private void validateExistingCase(
+            ReportCase reportCase,
+            ReportTargetResolver.ResolvedTarget target,
+            TargetType targetType
+    ) {
+        if (!target.targetKey().equals(reportCase.getTargetKey())
+                || !target.targetId().equals(reportCase.getTargetId())
+                || targetType != reportCase.getTargetType()
+                || !target.author().getUserId().equals(reportCase.getReportedUser().getUserId())) {
+            throw new CustomException(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        }
+    }
+
+    private void rejectQuarantinedCase(ReportCase reportCase) {
+        String moderationReason = reportCase.getModerationReason();
+        if (moderationReason != null && moderationReason.startsWith(TARGET_INTEGRITY_QUARANTINE_PREFIX)) {
+            throw new CustomException(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+        }
+    }
+
     /**
      * 신고된 게시글 삭제
      */
@@ -200,10 +278,10 @@ public class ReportService {
 
         try {
             switch (targetType) {
-                case COMMUNITY -> postService.delete(adminId, postId);
-                case COMMUNITY_COMMENT -> commentService.delete(adminId, postId);
-                case ACTIVITY -> activityService.delete(postId, adminId);
-                case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitment(adminId, postId);
+                case COMMUNITY -> postService.deleteForModeration(adminId, postId);
+                case COMMUNITY_COMMENT -> commentService.deleteForModeration(adminId, postId);
+                case ACTIVITY -> activityService.deleteForModeration(adminId, postId);
+                case ACTIVITY_RECRUITMENT -> recruitmentService.deleteRecruitmentForModeration(adminId, postId);
                 case USER -> log.info("Skipping account deletion in report processing. caseId={}", reportCase.getCaseId());
                 case CHAT -> log.info("Skipping chat deletion in report processing. caseId={}", reportCase.getCaseId());
             }

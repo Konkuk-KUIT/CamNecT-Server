@@ -5,13 +5,16 @@ import CamNecT.server.domain.community.dto.request.UpdatePostRequest;
 import CamNecT.server.domain.community.dto.response.PostDetailResponse;
 import CamNecT.server.domain.community.dto.response.PurchasePostAccessResponse;
 import CamNecT.server.domain.community.model.Boards;
+import CamNecT.server.domain.community.model.Comments.AcceptedComments;
 import CamNecT.server.domain.community.model.Comments.Comments;
+import CamNecT.server.domain.community.model.Posts.PostAccess;
 import CamNecT.server.domain.community.model.Posts.PostStats;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.BoardCode;
 import CamNecT.server.domain.community.model.enums.CommentStatus;
 import CamNecT.server.domain.community.model.enums.ContentAccessStatus;
 import CamNecT.server.domain.community.model.enums.PostStatus;
+import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.repository.BoardsRepository;
 import CamNecT.server.domain.community.repository.Comments.AcceptedCommentsRepository;
 import CamNecT.server.domain.community.repository.Comments.CommentLikesRepository;
@@ -19,9 +22,12 @@ import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.*;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.global.notification.event.SimpleNotifiableEvent;
@@ -36,6 +42,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -44,6 +51,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -69,6 +77,7 @@ class PostServiceImplTest {
     @Mock PostAttachmentsService postAttachmentsService;
     @Mock CommunityPostAccessPolicy postAccessPolicy;
     @Mock PointService pointService;
+    @Mock AccountAccessGuard accountAccessGuard;
     @Mock PresignEngine presignEngine;
     @Mock ApplicationEventPublisher eventPublisher;
     @Mock AuthorAssembler authorAssembler;
@@ -119,7 +128,7 @@ class PostServiceImplTest {
                 BoardCode.INFO, "제목", "본문", null, null, null
         );
 
-        when(userRepository.findByUserId(1L)).thenReturn(Optional.of(author));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(author);
         when(boardsRepository.findByCode(BoardCode.INFO)).thenReturn(Optional.of(board));
         when(postsRepository.save(any(Posts.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(followRepository.findFollowerIdsByFollowingId(1L)).thenReturn(List.of());
@@ -193,7 +202,7 @@ class PostServiceImplTest {
         when(postStatsRepository.findByPost_Id(10L)).thenReturn(Optional.of(stats));
         when(postTagsRepository.findByPost_Id(10L)).thenReturn(List.of());
         when(acceptedCommentsRepository.findByPost_Id(10L)).thenReturn(Optional.empty());
-        when(postAccessPolicy.evaluate(2L, post, false)).thenReturn(
+        when(postAccessPolicy.evaluate(2L, false, post, false)).thenReturn(
                 new CommunityPostAccessPolicy.AccessDecision(ContentAccessStatus.GRANTED, null, null, false)
         );
         when(postAttachmentsRepository.findByPost_IdAndStatusTrueOrderBySortOrderAscIdAsc(10L)).thenReturn(List.of());
@@ -209,12 +218,47 @@ class PostServiceImplTest {
     }
 
     @Test
+    void administratorDetailPassesPrivilegedReadToCentralPolicy() {
+        Posts post = Posts.builder()
+                .id(10L)
+                .board(Boards.of(BoardCode.QUESTION, BoardCode.QUESTION.name()))
+                .user(Users.builder().userId(1L).build())
+                .title("제목")
+                .content("감사용 보호 본문")
+                .isAnonymous(true)
+                .status(PostStatus.PUBLISHED)
+                .accessType(PostAccessType.POINT_REQUIRED)
+                .build();
+        PostStats stats = PostStats.init(post);
+        Comments acceptedComment = Comments.builder().id(20L).post(post).userId(3L).build();
+        AcceptedComments accepted = AcceptedComments.of(post, acceptedComment, 1L);
+
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
+        when(postStatsRepository.incrementView(eq(10L), any())).thenReturn(1);
+        when(postStatsRepository.findByPost_Id(10L)).thenReturn(Optional.of(stats));
+        when(postTagsRepository.findByPost_Id(10L)).thenReturn(List.of());
+        when(acceptedCommentsRepository.findByPost_Id(10L)).thenReturn(Optional.of(accepted));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+        when(postAccessPolicy.evaluate(99L, true, post, true)).thenReturn(
+                new CommunityPostAccessPolicy.AccessDecision(ContentAccessStatus.GRANTED, 100, null, true)
+        );
+        when(postAttachmentsRepository.findByPost_IdAndStatusTrueOrderBySortOrderAscIdAsc(10L))
+                .thenReturn(List.of());
+
+        PostDetailResponse result = service.getDetail(99L, 10L);
+
+        assertThat(result.content()).isEqualTo("감사용 보호 본문");
+        assertThat(result.accessStatus()).isEqualTo(ContentAccessStatus.GRANTED);
+        verify(postAccessPolicy).evaluate(99L, true, post, true);
+    }
+
+    @Test
     void bookmarkUsesLockedStatsAndRejectsHiddenPost() {
         Users user = Users.builder().userId(2L).build();
         Posts published = post(1L, BoardCode.INFO, false, PostStatus.PUBLISHED);
         PostStats stats = PostStats.init(published);
 
-        when(userRepository.findByUserId(2L)).thenReturn(Optional.of(user));
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(user);
         when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(published));
         when(postStatsRepository.findByPostIdForUpdate(10L)).thenReturn(Optional.of(stats));
 
@@ -236,12 +280,15 @@ class PostServiceImplTest {
     @Test
     void postDeletionRemovesCommentDependenciesBeforeRoots() {
         Posts post = post(1L, BoardCode.INFO, false, PostStatus.PUBLISHED);
+        when(accountAccessGuard.requireAccessibleForUpdate(1L))
+                .thenReturn(Users.builder().userId(1L).role(UserRole.USER).build());
         when(postsRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(post));
-        when(userRepository.existsByUserIdAndRole(1L, UserRole.ADMIN))
-                .thenReturn(false);
 
         service.delete(1L, 10L);
 
+        InOrder accessOrder = inOrder(accountAccessGuard, postsRepository);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        accessOrder.verify(postsRepository).findByIdForUpdate(10L);
         InOrder order = inOrder(commentLikesRepository, acceptedCommentsRepository, commentsRepository);
         order.verify(commentsRepository).findAllByPostIdForUpdate(10L);
         order.verify(commentLikesRepository).deleteByPostId(10L);
@@ -249,15 +296,42 @@ class PostServiceImplTest {
         order.verify(commentsRepository).deleteRepliesByPostId(10L);
         order.verify(commentsRepository).deleteRootsByPostId(10L);
         verify(postsRepository).softDeleteById(eq(10L), any(LocalDateTime.class));
+        verify(userRepository, never()).existsByUserIdAndRole(1L, UserRole.ADMIN);
+    }
+
+    @Test
+    void moderationDeletionRemovesAcceptedQuestion() {
+        Posts question = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
+        when(postsRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(question));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+
+        assertDoesNotThrow(() -> service.deleteForModeration(99L, 10L));
+
+        verify(acceptedCommentsRepository, never()).existsByPost_Id(10L);
+        verify(acceptedCommentsRepository).deleteByPost_Id(10L);
+        verify(postsRepository).softDeleteById(eq(10L), any(LocalDateTime.class));
+        verifyNoInteractions(accountAccessGuard);
+    }
+
+    @Test
+    void moderationDeletionTreatsHiddenPostAsComplete() {
+        Posts hidden = post(1L, BoardCode.QUESTION, false, PostStatus.HIDDEN);
+        when(postsRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(hidden));
+        when(userRepository.existsByUserIdAndRole(99L, UserRole.ADMIN)).thenReturn(true);
+
+        assertDoesNotThrow(() -> service.deleteForModeration(99L, 10L));
+
+        verify(commentsRepository, never()).findAllByPostIdForUpdate(anyLong());
+        verify(postsRepository, never()).softDeleteById(anyLong(), any());
     }
 
     @Test
     void purchaseBeforeAcceptanceIsGrantedWithoutSpendingPoints() {
-        Users viewer = Users.builder().userId(2L).build();
+        Users viewer = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
         Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
 
-        when(userRepository.findByUserId(2L)).thenReturn(Optional.of(viewer));
-        when(postsRepository.findById(10L)).thenReturn(Optional.of(post));
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(viewer);
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
         when(postAccessPolicy.isPaywallActive(post)).thenReturn(false);
         when(pointService.getBalance(2L)).thenReturn(250);
 
@@ -272,11 +346,11 @@ class PostServiceImplTest {
 
     @Test
     void purchaseAfterAcceptanceSpendsOnceAndCreatesAccess() {
-        Users viewer = Users.builder().userId(2L).build();
+        Users viewer = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
         Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
 
-        when(userRepository.findByUserId(2L)).thenReturn(Optional.of(viewer));
-        when(postsRepository.findById(10L)).thenReturn(Optional.of(post));
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(viewer);
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
         when(postAccessPolicy.isPaywallActive(post)).thenReturn(true);
         when(pointService.getBalance(2L)).thenReturn(150);
 
@@ -291,11 +365,11 @@ class PostServiceImplTest {
 
     @Test
     void acceptedAnswerAuthorIsGrantedWithoutPurchase() {
-        Users answerAuthor = Users.builder().userId(2L).build();
+        Users answerAuthor = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
         Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
 
-        when(userRepository.findByUserId(2L)).thenReturn(Optional.of(answerAuthor));
-        when(postsRepository.findById(10L)).thenReturn(Optional.of(post));
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(answerAuthor);
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
         when(postAccessPolicy.isPaywallActive(post)).thenReturn(true);
         when(postAccessPolicy.isAcceptedAnswerAuthor(2L, 10L)).thenReturn(true);
         when(pointService.getBalance(2L)).thenReturn(200);
@@ -307,6 +381,51 @@ class PostServiceImplTest {
         assertThat(result.isAlreadyOwned()).isTrue();
         verify(pointService, never()).spendPoint(anyLong(), anyInt(), any());
         verify(postAccessRepository, never()).save(any());
+    }
+
+    @Test
+    void withdrawnUserIsRejectedAfterLockBeforeAccessOrPointWork() {
+        doThrow(new CustomException(AuthErrorCode.USER_WITHDRAWN))
+                .when(accountAccessGuard).requireAccessibleForUpdate(2L);
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.purchasePostAccess(2L, 10L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_WITHDRAWN);
+        verify(accountAccessGuard).requireAccessibleForUpdate(2L);
+        verifyNoInteractions(postsRepository, postAccessRepository, postAccessPolicy, pointService);
+    }
+
+    @Test
+    void activelyRestrictedUserIsRejectedAfterLockBeforeAccessOrPointWork() {
+        doThrow(new CustomException(AuthErrorCode.USER_SUSPENDED))
+                .when(accountAccessGuard).requireAccessibleForUpdate(2L);
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.purchasePostAccess(2L, 10L));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_SUSPENDED);
+        verify(accountAccessGuard).requireAccessibleForUpdate(2L);
+        verifyNoInteractions(postsRepository, postAccessRepository, postAccessPolicy, pointService);
+    }
+
+    @Test
+    void accessSaveFailureIsNotSwallowed() {
+        Users viewer = Users.builder().userId(2L).status(UserStatus.ACTIVE).build();
+        Posts post = post(1L, BoardCode.QUESTION, false, PostStatus.PUBLISHED);
+        DataIntegrityViolationException failure = new DataIntegrityViolationException("unexpected constraint");
+
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(viewer);
+        when(postsRepository.findByIdForRead(10L)).thenReturn(Optional.of(post));
+        when(postAccessPolicy.isPaywallActive(post)).thenReturn(true);
+        when(postAccessRepository.save(any(PostAccess.class))).thenThrow(failure);
+
+        DataIntegrityViolationException thrown = assertThrows(DataIntegrityViolationException.class,
+                () -> service.purchasePostAccess(2L, 10L));
+
+        assertThat(thrown).isSameAs(failure);
+        verify(pointService).spendPoint(eq(2L), eq(100), any());
+        verify(pointService, never()).getBalance(anyLong());
     }
 
     private static Posts post(Long authorId, BoardCode boardCode, boolean anonymous, PostStatus status) {

@@ -5,9 +5,12 @@ import CamNecT.server.domain.activity.repository.recruitment.TeamRecruitmentRepo
 import CamNecT.server.domain.chat.model.ChatRoom;
 import CamNecT.server.domain.chat.repository.ChatRoomRepository;
 import CamNecT.server.domain.community.model.Posts.Posts;
+import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.report.dto.request.ReportCreateRequest;
+import CamNecT.server.domain.report.model.Report;
+import CamNecT.server.domain.report.model.ReportCase;
 import CamNecT.server.domain.report.model.ReportCategory;
 import CamNecT.server.domain.report.model.TargetType;
 import CamNecT.server.domain.users.model.Users;
@@ -21,6 +24,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,12 +72,27 @@ class ReportTargetResolverTest {
     }
 
     @Test
+    void deletedPostIsRejectedDuringLockedCreateResolution() {
+        ReportCreateRequest request = request(2L, 100L);
+        when(postsRepository.findByIdAndStatusForRead(100L, PostStatus.PUBLISHED))
+                .thenReturn(Optional.empty());
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> resolver.resolveForCreateLocked(1L, request)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_INVALID_TARGET);
+    }
+
+    @Test
     void chatReportsInOppositeDirectionsUseDifferentCaseKeys() {
         Users requester = Users.builder().userId(1L).name("requester").build();
         Users receiver = Users.builder().userId(2L).name("receiver").build();
-        ChatRoom room = ChatRoom.builder().requester(requester).receiver(receiver).build();
-        ReflectionTestUtils.setField(room, "id", 77L);
-        when(chatRoomRepository.findById(77L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findReportTargetUserId(77L, 1L)).thenReturn(Optional.of(2L));
+        when(chatRoomRepository.findReportTargetUserId(77L, 2L)).thenReturn(Optional.of(1L));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(requester));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(receiver));
 
         ReportTargetResolver.ResolvedTarget requesterReportsReceiver = resolver.resolve(
                 1L, request(2L, 77L, TargetType.CHAT));
@@ -86,11 +105,7 @@ class ReportTargetResolverTest {
 
     @Test
     void chatReportByOutsiderIsRejected() {
-        Users requester = Users.builder().userId(1L).name("requester").build();
-        Users receiver = Users.builder().userId(2L).name("receiver").build();
-        ChatRoom room = ChatRoom.builder().requester(requester).receiver(receiver).build();
-        ReflectionTestUtils.setField(room, "id", 77L);
-        when(chatRoomRepository.findById(77L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findReportTargetUserId(77L, 3L)).thenReturn(Optional.empty());
 
         CustomException exception = assertThrows(CustomException.class,
                 () -> resolver.resolve(3L, request(2L, 77L, TargetType.CHAT)));
@@ -116,6 +131,60 @@ class ReportTargetResolverTest {
                 () -> resolver.resolve(1L, request(2L, 100L, null)));
 
         assertThat(exception.getErrorCode()).isEqualTo(ReportErrorCode.REPORT_INVALID_TARGET);
+    }
+
+    @Test
+    void persistedCaseWithLegacyClientSuppliedOwnerIsRejected() {
+        Users actualAuthor = Users.builder().userId(2L).name("actual").build();
+        Users forgedAuthor = Users.builder().userId(3L).name("forged").build();
+        Posts post = Posts.builder().id(100L).user(actualAuthor).build();
+        ReportCase reportCase = ReportCase.open(
+                "COMMUNITY:100",
+                forgedAuthor,
+                100L,
+                TargetType.COMMUNITY
+        );
+        Report legacyReport = new Report(
+                reportCase,
+                1L,
+                3L,
+                100L,
+                TargetType.COMMUNITY,
+                ReportCategory.OTHER,
+                "title",
+                "context"
+        );
+        when(postsRepository.findById(100L)).thenReturn(Optional.of(post));
+
+        CustomException exception = assertThrows(
+                CustomException.class,
+                () -> resolver.validateStoredCase(reportCase, List.of(legacyReport))
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(ReportErrorCode.REPORT_TARGET_INTEGRITY_UNVERIFIED);
+    }
+
+    @Test
+    void persistedChatCaseIsResolvedFromReporterAndRoomParticipants() {
+        Users requester = Users.builder().userId(1L).name("requester").build();
+        Users receiver = Users.builder().userId(2L).name("receiver").build();
+        ChatRoom room = ChatRoom.builder().requester(requester).receiver(receiver).build();
+        ReflectionTestUtils.setField(room, "id", 77L);
+        ReportCase reportCase = ReportCase.open("CHAT:77:2", receiver, 77L, TargetType.CHAT);
+        Report report = new Report(
+                reportCase,
+                1L,
+                2L,
+                77L,
+                TargetType.CHAT,
+                ReportCategory.OTHER,
+                "title",
+                "context"
+        );
+        when(chatRoomRepository.findById(77L)).thenReturn(Optional.of(room));
+
+        resolver.validateStoredCase(reportCase, List.of(report));
     }
 
     private static ReportCreateRequest request(Long reportedUserId, Long postId) {

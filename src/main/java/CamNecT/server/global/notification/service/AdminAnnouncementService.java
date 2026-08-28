@@ -44,17 +44,23 @@ public class AdminAnnouncementService {
         }
 
         long total = 0L;
-        int page = 0;
+        long lastSeenUserId = 0L;
 
         while (true) {
-            Slice<Long> result = userRepository.findUserIdsByStatus(UserStatus.ACTIVE, PageRequest.of(page++, BATCH_SIZE));
+            Slice<Long> result = userRepository.findUserIdsByStatusAndUserIdGreaterThan(
+                    UserStatus.ACTIVE,
+                    lastSeenUserId,
+                    PageRequest.of(0, BATCH_SIZE)
+            );
             if (result.isEmpty()) break;
 
+            List<Long> receiverIds = result.getContent();
             total += adminAnnouncementBatchService.dispatch(
                     adminUserId,
                     request,
-                    result.getContent()
+                    receiverIds
             );
+            lastSeenUserId = receiverIds.get(receiverIds.size() - 1);
 
             if (!result.hasNext()) break;
         }

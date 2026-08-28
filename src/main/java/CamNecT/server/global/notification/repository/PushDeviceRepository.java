@@ -16,16 +16,42 @@ public interface PushDeviceRepository extends JpaRepository<PushDevice, Long> {
 
     List<PushDevice> findAllByUserIdAndEnabledTrue(Long userId);
 
-    List<PushDevice> findAllByFcmTokenIn(Collection<String> tokens);
+    @Query("select p.fcmToken from PushDevice p where p.userId = :userId and p.deviceId = :deviceId")
+    Optional<String> findTokenByUserIdAndDeviceId(
+            @Param("userId") Long userId,
+            @Param("deviceId") String deviceId
+    );
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update PushDevice p set p.enabled = false where p.fcmToken = :token and p.userId <> :userId")
-    int disableTokenForOtherUsers(@Param("token") String token, @Param("userId") Long userId);
+    @Query("select p.fcmToken from PushDevice p where p.userId = :userId and p.enabled = true")
+    List<String> findActiveTokensByUserId(@Param("userId") Long userId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         update PushDevice p
            set p.enabled = false,
+               p.activeFcmToken = null,
+               p.lastSeenAt = CURRENT_TIMESTAMP
+         where p.fcmToken = :token
+           and p.enabled = true
+    """)
+    int disableActiveToken(@Param("token") String token);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        update PushDevice p
+           set p.enabled = false,
+               p.activeFcmToken = null,
+               p.lastSeenAt = CURRENT_TIMESTAMP
+         where p.fcmToken in :tokens
+           and p.enabled = true
+    """)
+    int disableActiveTokens(@Param("tokens") Collection<String> tokens);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        update PushDevice p
+           set p.enabled = false,
+               p.activeFcmToken = null,
                p.lastSeenAt = CURRENT_TIMESTAMP
          where p.userId = :userId
            and p.deviceId = :deviceId
@@ -40,6 +66,7 @@ public interface PushDeviceRepository extends JpaRepository<PushDevice, Long> {
     @Query("""
         update PushDevice p
            set p.enabled = false,
+               p.activeFcmToken = null,
                p.lastSeenAt = CURRENT_TIMESTAMP
          where p.userId = :userId
            and p.enabled = true

@@ -3,7 +3,7 @@ services:
     image: mysql:8.0
     container_name: camnect-mysql
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASS}
       MYSQL_DATABASE: ${DB_NAME}
@@ -24,7 +24,7 @@ services:
     image: redis:7.4-alpine
     container_name: camnect-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data

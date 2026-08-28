@@ -29,7 +29,7 @@ public class NotificationEventListener {
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     public void persist(NotifiableEvent e) {
 
-        log.info("[notif] persist(beforeCommit) receiver={}, actor={}, type={}",
+        log.debug("[notif] persist(beforeCommit) receiver={}, actor={}, type={}",
                 e.receiverUserId(), e.actorUserId(), e.type());
 
         if (!isDeliverable(e) || e.shouldSkipSelfNotification()) return;
@@ -52,7 +52,7 @@ public class NotificationEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void push(NotifiableEvent e) {
 
-        log.info("[notif] push(afterCommit) receiver={}, actor={}, type={}",
+        log.debug("[notif] push(afterCommit) receiver={}, actor={}, type={}",
                 e.receiverUserId(), e.actorUserId(), e.type());
 
         if (!isDeliverable(e) || e.shouldSkipSelfNotification()) return;
@@ -80,7 +80,7 @@ public class NotificationEventListener {
         // 2) 모바일 푸시(FCM)
         try {
             var tokens = pushDeviceService.findEnabledTokens(e.receiverUserId());
-            log.info("[notif] fcm tokens receiver={}, size={}",
+            log.debug("[notif] fcm tokens receiver={}, size={}",
                     e.receiverUserId(),
                     tokens == null ? 0 : tokens.size()
             );
@@ -97,15 +97,17 @@ public class NotificationEventListener {
             if (e.requestId() != null) data.put("requestId", String.valueOf(e.requestId()));
             if (e.roomId() != null) data.put("roomId", String.valueOf(e.roomId()));
 
-            log.info("[notif] fcm send start receiver={}, title={}, bodyLen={}, dataKeys={}",
+            log.debug("[notif] fcm send start receiver={}, title={}, bodyLen={}, dataKeys={}",
                     e.receiverUserId(), title, body == null ? 0 : body.length(), data.keySet());
             FCMSender.SendResult result = fcmSender.sendToTokens(tokens, data); //이앞 title,body 지웠다.
-            log.info("[notif] fcm send done receiver={}, requested={}, success={}, failure={}, invalid={}",
+            log.debug("[notif] fcm send done receiver={}, requested={}, success={}, failure={}, invalid={}",
                     e.receiverUserId(),
                     result.requested(), result.success(), result.failure(),
                     result.invalidTokens() == null ? 0 : result.invalidTokens().size()
             );
-            pushDeviceService.disableTokens(result.invalidTokens());
+            if (result.invalidTokens() != null && !result.invalidTokens().isEmpty()) {
+                pushDeviceService.disableTokens(result.invalidTokens());
+            }
         } catch (Exception ex) {
             log.warn("[notif] FCM delivery failed. receiver={}, type={}", e.receiverUserId(), e.type(), ex);
         }

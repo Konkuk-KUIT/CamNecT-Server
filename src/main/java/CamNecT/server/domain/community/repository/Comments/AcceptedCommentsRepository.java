@@ -32,4 +32,6 @@ public interface AcceptedCommentsRepository extends JpaRepository<AcceptedCommen
                                          @Param("postIds") Collection<Long> postIds);
 
     void deleteByPost_Id(Long postId);
+
+    void deleteByComment_Id(Long commentId);
 }

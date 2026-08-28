@@ -28,13 +28,15 @@ public class ChatRealtimeDeliveryService {
         try {
             long receiverRoomUnread = chatRepository
                     .countByRoom_IdAndReceiver_UserIdAndIsReadFalse(roomId, event.receiverId());
+            long senderRoomUnread = chatRepository
+                    .countByRoom_IdAndReceiver_UserIdAndIsReadFalse(roomId, event.senderId());
             long receiverTotalUnread = chatRepository.countVisibleUnreadByUserId(event.receiverId());
             long senderTotalUnread = chatRepository.countVisibleUnreadByUserId(event.senderId());
 
             ChatRoomListUpdateDto receiverUpdate = roomListUpdate(
                     event, receiverRoomUnread, receiverTotalUnread);
             ChatRoomListUpdateDto senderUpdate = roomListUpdate(
-                    event, 0L, senderTotalUnread);
+                    event, senderRoomUnread, senderTotalUnread);
 
             sendSafely("/sub/user/" + event.receiverId() + "/rooms",
                     receiverUpdate, "message-receiver-list");

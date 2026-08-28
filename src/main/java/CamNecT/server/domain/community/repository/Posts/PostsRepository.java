@@ -21,6 +21,13 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     @Query("select p from Posts p where p.id = :postId")
     Optional<Posts> findByIdForRead(@Param("postId") Long postId);
 
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_READ)
+    @Query("select p from Posts p where p.id = :postId and p.status = :status")
+    Optional<Posts> findByIdAndStatusForRead(
+            @Param("postId") Long postId,
+            @Param("status") PostStatus status
+    );
+
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Posts p where p.id = :postId")
     Optional<Posts> findByIdForUpdate(@Param("postId") Long postId);
@@ -34,7 +41,8 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
           and (:cursorId is null or p.id < :cursorId)
           and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
                            or (p.content like concat('%', :keyword, '%') escape '!'
-                               and (p.accessType <> :pointRequiredAccess
+                               and (:adminRead = true
+                                    or p.accessType <> :pointRequiredAccess
                                     or p.board.code <> :questionCode
                                     or not exists (select 1 from AcceptedComments ac where ac.post = p)
                                     or p.user.userId = :viewerUserId
@@ -55,6 +63,7 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
+            @Param("adminRead") boolean adminRead,
             @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
             @Param("questionCode") BoardCode questionCode,
             @Param("cursorId") Long cursorId,
@@ -93,7 +102,8 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
       and (:code is null or p.board.code = :code)
       and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
                        or (p.content like concat('%', :keyword, '%') escape '!'
-                           and (p.accessType <> :pointRequiredAccess
+                           and (:adminRead = true
+                                or p.accessType <> :pointRequiredAccess
                                 or p.board.code <> :questionCode
                                 or not exists (select 1 from AcceptedComments ac where ac.post = p)
                                 or p.user.userId = :viewerUserId
@@ -119,6 +129,7 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
+            @Param("adminRead") boolean adminRead,
             @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
             @Param("questionCode") BoardCode questionCode,
             @Param("cursorValue") Long cursorValue,   // hotScore 커서
@@ -135,7 +146,8 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
       and (:code is null or p.board.code = :code)
       and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
                        or (p.content like concat('%', :keyword, '%') escape '!'
-                           and (p.accessType <> :pointRequiredAccess
+                           and (:adminRead = true
+                                or p.accessType <> :pointRequiredAccess
                                 or p.board.code <> :questionCode
                                 or not exists (select 1 from AcceptedComments ac where ac.post = p)
                                 or p.user.userId = :viewerUserId
@@ -161,6 +173,7 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
+            @Param("adminRead") boolean adminRead,
             @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
             @Param("questionCode") BoardCode questionCode,
             @Param("cursorValue") Long cursorValue,   // likeCount 커서
@@ -176,7 +189,8 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
       and (:code is null or p.board.code = :code)
       and (:keyword is null or p.title like concat('%', :keyword, '%') escape '!'
                        or (p.content like concat('%', :keyword, '%') escape '!'
-                           and (p.accessType <> :pointRequiredAccess
+                           and (:adminRead = true
+                                or p.accessType <> :pointRequiredAccess
                                 or p.board.code <> :questionCode
                                 or not exists (select 1 from AcceptedComments ac where ac.post = p)
                                 or p.user.userId = :viewerUserId
@@ -202,6 +216,7 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
             @Param("tagId") Long tagId,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
+            @Param("adminRead") boolean adminRead,
             @Param("pointRequiredAccess") PostAccessType pointRequiredAccess,
             @Param("questionCode") BoardCode questionCode,
             @Param("cursorValue") Long cursorValue,   // bookmarkCount 커서

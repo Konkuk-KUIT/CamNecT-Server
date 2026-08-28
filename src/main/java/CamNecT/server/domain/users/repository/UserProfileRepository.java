@@ -62,5 +62,8 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, Long> 
             """)
     Optional<ProfileGlobalDto> findGlobalByUserId(@Param("userId") Long userId);
 
+    @Query("select p.profileImageKey from UserProfile p where p.userId = :userId")
+    Optional<String> findProfileImageKeyByUserId(@Param("userId") Long userId);
+
     void deleteByUserId(Long userId);
 }

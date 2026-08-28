@@ -19,7 +19,9 @@ import CamNecT.server.domain.community.repository.Comments.CommentsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostStatsRepository;
 import CamNecT.server.domain.community.repository.Posts.PostsRepository;
 import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CommunityErrorCode;
@@ -46,6 +48,7 @@ public class CommentServiceImpl implements CommentService {
     private final UserRepository userRepository;
     private final AcceptedCommentsRepository acceptedCommentsRepository;
     private final CommunityPostAccessPolicy postAccessPolicy;
+    private final AccountAccessGuard accountAccessGuard;
     private final AuthorAssembler  authorAssembler;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -54,11 +57,13 @@ public class CommentServiceImpl implements CommentService {
     public CreateCommentResponse create(Long userId, Long postId, CreateCommentRequest req) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
 
         requirePublished(post);
-        postAccessPolicy.requireReadable(userId, post);
+        postAccessPolicy.requireReadable(userId, post, false);
 
         Comments parent = null;
         if (req.parentCommentId() != null) {
@@ -124,6 +129,8 @@ public class CommentServiceImpl implements CommentService {
     public void update(Long userId, Long commentId, UpdateCommentRequest req) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
 
@@ -146,13 +153,15 @@ public class CommentServiceImpl implements CommentService {
     public void delete(Long userId, Long commentId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        Users actor = accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
 
         requirePublished(comment.getPost());
         requirePublished(comment);
 
-        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAdmin = actor.getRole() == UserRole.ADMIN;
         boolean isOwner = Objects.equals(comment.getUserId(), userId);
 
         //작성자 또는 관리자만 삭제 가능
@@ -163,8 +172,30 @@ public class CommentServiceImpl implements CommentService {
             throw new CustomException(CommunityErrorCode.CANNOT_MODIFY_ACCEPTED_COMMENT);
         }
 
-        boolean isRoot = (comment.getParent() == null);
+        deleteComment(comment);
+    }
 
+    @Transactional
+    @Override
+    public void deleteForModeration(Long adminId, Long commentId) {
+        if (adminId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+
+        Comments comment = commentsRepository.findByIdForUpdate(commentId)
+                .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
+
+        if (!userRepository.existsByUserIdAndRole(adminId, UserRole.ADMIN)) {
+            throw new CustomException(CommunityErrorCode.COMMENT_FORBIDDEN);
+        }
+        if (!comment.getPost().getStatus().isPublished() || !comment.getStatus().isPublished()) {
+            return;
+        }
+
+        acceptedCommentsRepository.deleteByComment_Id(commentId);
+        deleteComment(comment);
+    }
+
+    private void deleteComment(Comments comment) {
+        boolean isRoot = comment.getParent() == null;
         comment.deleteSoft();
 
         PostStats stats = postStatsRepository.findByPostIdForUpdate(comment.getPost().getId())
@@ -180,12 +211,14 @@ public class CommentServiceImpl implements CommentService {
     public ToggleCommentLikeResponse toggleLike(Long userId, Long commentId) {
         if (userId == null) throw new CustomException(AuthErrorCode.INVALID_TOKEN);
 
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         Comments comment = commentsRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.COMMENT_NOT_FOUND));
 
         requirePublished(comment.getPost());
         requirePublished(comment);
-        postAccessPolicy.requireReadable(userId, comment.getPost());
+        postAccessPolicy.requireReadable(userId, comment.getPost(), false);
 
         boolean liked;
         if (commentLikesRepository.existsByComment_IdAndUserId(commentId, userId)) {
@@ -212,7 +245,8 @@ public class CommentServiceImpl implements CommentService {
         Posts post = postsRepository.findByIdForRead(postId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.POST_NOT_FOUND));
         requirePublished(post);
-        postAccessPolicy.requireReadable(userId, post);
+        boolean adminRead = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        postAccessPolicy.requireReadable(userId, post, adminRead);
 
         if (cursorId != null && cursorId <= 0) {
             throw new CustomException(CommunityErrorCode.INVALID_CURSOR);

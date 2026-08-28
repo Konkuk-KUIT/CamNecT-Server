@@ -18,9 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class WebSocketEventListenerTest {
 
@@ -33,7 +31,7 @@ class WebSocketEventListenerTest {
             presenceService, chatService, userRepository, errorMapper, errorPublisher);
 
     @Test
-    void readFailureAfterSubscribeIsDeliveredToOriginatingSession() {
+    void readFailureDoesNotLeaveAFalsePresenceAndIsDeliveredToOriginatingSession() {
         Users user = Users.builder().userId(1L).build();
         CustomException failure = new CustomException(ErrorCode.INTERNAL_ERROR);
         ChatSocketErrorResponse response = new ChatSocketErrorResponse(
@@ -50,8 +48,22 @@ class WebSocketEventListenerTest {
 
         listener.handleSessionSubscribeEvent(new SessionSubscribeEvent(this, message));
 
-        verify(presenceService).enter(99L, 1L, "session-a", "subscription-a");
+        verifyNoInteractions(presenceService);
         verify(errorPublisher).sendToSession(1L, "session-a", response);
+    }
+
+    @Test
+    void successfulReadValidationPrecedesPresenceRegistration() {
+        Users user = Users.builder().userId(1L).build();
+        Message<byte[]> message = subscribeMessage();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        listener.handleSessionSubscribeEvent(new SessionSubscribeEvent(this, message));
+
+        var order = inOrder(chatService, presenceService);
+        order.verify(chatService).markAllAsRead(99L, user);
+        order.verify(presenceService).enter(99L, 1L, "session-a", "subscription-a");
+        verifyNoInteractions(errorPublisher);
     }
 
     private Message<byte[]> subscribeMessage() {

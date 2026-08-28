@@ -4,9 +4,11 @@ import CamNecT.server.domain.community.dto.request.AttachmentRequest;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.props.CommunityAttachmentProps;
 import CamNecT.server.domain.community.repository.Posts.PostAttachmentsRepository;
-import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.StorageErrorCode;
+import CamNecT.server.global.storage.dto.request.PresignUploadBatchRequest;
 import CamNecT.server.global.storage.service.GlobalPresignMethods;
 import CamNecT.server.global.storage.service.PresignEngine;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +28,7 @@ import static org.mockito.Mockito.*;
 class PostAttachmentsServiceTest {
 
     @Mock PostAttachmentsRepository postAttachmentsRepository;
-    @Mock UserRepository userRepository;
+    @Mock AccountAccessGuard accountAccessGuard;
     @Mock PresignEngine presignEngine;
     @Mock CommunityAttachmentProps attachmentProps;
     @Mock GlobalPresignMethods globalPresignMethods;
@@ -60,5 +62,21 @@ class PostAttachmentsServiceTest {
 
         assertThat(exception.getErrorCode()).isEqualTo(StorageErrorCode.INVALID_ATTACHMENT_METADATA);
         verifyNoInteractions(postAttachmentsRepository, presignEngine);
+    }
+
+    @Test
+    void inaccessibleActorCannotIssueAttachmentUploadTicket() {
+        doThrow(new CustomException(AuthErrorCode.USER_WITHDRAWN))
+                .when(accountAccessGuard).requireAccessibleForUpdate(1L);
+        PresignUploadBatchRequest request = new PresignUploadBatchRequest(List.of(
+                new PresignUploadBatchRequest.Item("image/png", 100L, "community.png")
+        ));
+
+        CustomException exception = assertThrows(CustomException.class,
+                () -> service.presignAttachmentsBatch(1L, request));
+
+        assertThat(exception.getErrorCode()).isEqualTo(AuthErrorCode.USER_WITHDRAWN);
+        verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        verifyNoInteractions(presignEngine, globalPresignMethods);
     }
 }

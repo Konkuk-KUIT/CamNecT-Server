@@ -5,7 +5,7 @@ import CamNecT.server.domain.community.model.props.CommunityAttachmentProps;
 import CamNecT.server.domain.community.model.Posts.PostAttachments;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.repository.Posts.PostAttachmentsRepository;
-import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.StorageErrorCode;
 import CamNecT.server.global.storage.service.GlobalPresignMethods;
@@ -25,7 +25,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PostAttachmentsService {
     private final PostAttachmentsRepository postAttachmentsRepository;
-    private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
 
     private final PresignEngine presignEngine;
     private final CommunityAttachmentProps attachmentProps;
@@ -45,7 +45,7 @@ public class PostAttachmentsService {
             throw new CustomException(StorageErrorCode.INVALID_ATTACHMENT_METADATA);
         }
 
-        userRepository.lockUserRow(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         String tempPrefix = "community/user-" + userId + "/attachments";
 

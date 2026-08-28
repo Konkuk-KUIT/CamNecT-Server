@@ -1,6 +1,8 @@
 package CamNecT.server.domain.verification.document.service;
 
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.domain.users.model.UserStatus;
+import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.verification.document.repository.DocumentVerificationSubmissionRepository;
 import CamNecT.server.domain.verification.document.config.DocumentVerificationProperties;
 import CamNecT.server.domain.verification.document.dto.DocumentVerificationDetailResponse;
@@ -49,10 +51,7 @@ public class DocumentVerificationService {
     // ===== presign upload =====
     @Transactional
     public PresignUploadResponse presignUpload(Long userId, PresignUploadRequest req) {
-        userRepository.lockUserRow(userId);
-        if (!userRepository.existsById(userId)) {
-            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
-        }
+        requirePendingUserForUpdate(userId);
 
         String ct = normalize(req.contentType());
 
@@ -83,10 +82,7 @@ public class DocumentVerificationService {
             throw new CustomException(VerificationErrorCode.DOCUMENTS_REQUIRED);
         }
 
-        userRepository.lockUserRow(userId);
-        if (!userRepository.existsById(userId)) {
-            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
-        }
+        requirePendingUserForUpdate(userId);
 
         DocumentVerificationSubmission oldPending = submissionRepo
                 .findTopByUserIdAndStatusOrderBySubmittedAtDesc(userId, VerificationStatus.PENDING)
@@ -201,6 +197,21 @@ public class DocumentVerificationService {
         if (StringUtils.hasText(key)) {
             globalPresignMethods.deleteAfterCommit(Collections.singleton(key));
         }
+    }
+
+    private Users requirePendingUserForUpdate(Long userId) {
+        Users user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+        if (user.getStatus() == UserStatus.SUSPENDED) {
+            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
+        }
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        }
+        if (user.getStatus() != UserStatus.ADMIN_PENDING) {
+            throw new CustomException(VerificationErrorCode.DOCUMENT_SUBMISSION_NOT_ALLOWED);
+        }
+        return user;
     }
 
     private String safeName(String name) {

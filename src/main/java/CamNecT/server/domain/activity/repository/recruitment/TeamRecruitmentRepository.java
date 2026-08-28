@@ -14,9 +14,16 @@ import java.util.Optional;
 @Repository
 public interface TeamRecruitmentRepository extends JpaRepository<TeamRecruitment, Long> {
 
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select r from TeamRecruitment r where r.recruitId = :recruitId")
+    Optional<TeamRecruitment> findByIdForRead(@Param("recruitId") Long recruitId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from TeamRecruitment r where r.recruitId = :recruitId")
     Optional<TeamRecruitment> findByIdForUpdate(@Param("recruitId") Long recruitId);
+
+    @Query("select r.userId from TeamRecruitment r where r.recruitId = :recruitId")
+    Optional<Long> findUserIdByRecruitId(@Param("recruitId") Long recruitId);
 
     boolean existsByActivityId(Long activityId);
 

@@ -1,11 +1,13 @@
 package CamNecT.server.domain.auth.service;
 
 import CamNecT.server.domain.profile.dto.request.UpdatePasswordRequest;
+import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.jwt.service.TokenSessionService;
+import CamNecT.server.global.jwt.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,11 +22,13 @@ public class PasswordService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final TokenSessionService tokenSessionService;
+    private final JwtUtil jwtUtil;
 
     @Transactional
     public void updateMyPassword(Long userId, UpdatePasswordRequest req) {
-        Users user = userRepository.findById(userId)
+        Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
+        validateRecoverableUser(user);
 
         if (!passwordEncoder.matches(req.currentPassword(), user.getPasswordHash())) {
             throw new CustomException(AuthErrorCode.INVALID_CREDENTIALS);
@@ -36,9 +40,17 @@ public class PasswordService {
     }
 
     @Transactional
-    public void resetPasswordByUserId(Long userId, String newPassword) {
-        Users user = userRepository.findById(userId)
+    public void resetPasswordByUserId(
+            Long userId,
+            String newPassword,
+            String expectedPasswordFingerprint
+    ) {
+        Users user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
+        validateRecoverableUser(user);
+        if (!jwtUtil.matchesPasswordFingerprint(expectedPasswordFingerprint, user.getPasswordHash())) {
+            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
+        }
 
         resetPassword(user, newPassword);
         tokenSessionService.revokeAll(userId);
@@ -51,6 +63,15 @@ public class PasswordService {
         }
 
         user.changePasswordHash(passwordEncoder.encode(newPassword));
+    }
+
+    private void validateRecoverableUser(Users user) {
+        if (user.getStatus() == UserStatus.SUSPENDED) {
+            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
+        }
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        }
     }
 
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(

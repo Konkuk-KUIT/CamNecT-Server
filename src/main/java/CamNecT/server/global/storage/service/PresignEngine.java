@@ -25,6 +25,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -38,6 +39,7 @@ public class PresignEngine {
     private final S3Props s3Props;
     private final PresignProps presignProps;
     private final UploadTicketRepository ticketRepo;
+    private final Clock clock;
 
     private static final String TEMP_ROOT = "temp";
 
@@ -83,10 +85,10 @@ public class PresignEngine {
             List<IssueItem> items,
             int maxPendingLimit
     ) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
 
         // 만료된 pending 정리
-        ticketRepo.bulkExpirePendingByUserPurpose(userId, purpose);
+        ticketRepo.bulkExpirePendingByUserPurpose(userId, purpose, now);
 
         long active = ticketRepo.countByUserIdAndPurposeAndStatusAndExpiresAtAfter(
                 userId, purpose, UploadTicket.Status.PENDING, now
@@ -162,7 +164,7 @@ public class PresignEngine {
         if (!StringUtils.hasText(tempKey)) throw new CustomException(StorageErrorCode.STORAGE_KEY_REQUIRED);
         if (!StringUtils.hasText(finalKeyPrefix)) throw new CustomException(StorageErrorCode.STORAGE_KEY_REQUIRED);
 
-        UploadTicket t = ticketRepo.findByStorageKey(tempKey)
+        UploadTicket t = ticketRepo.findByStorageKeyForUpdate(tempKey)
                 .orElseThrow(() -> new CustomException(StorageErrorCode.UPLOAD_TICKET_NOT_FOUND));
 
         if (!Objects.equals(t.getUserId(), userId)) throw new CustomException(StorageErrorCode.UPLOAD_TICKET_FORBIDDEN);

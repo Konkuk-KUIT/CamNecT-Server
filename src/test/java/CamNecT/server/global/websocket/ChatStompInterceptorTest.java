@@ -61,6 +61,7 @@ class ChatStompInterceptorTest {
         assertDoesNotThrow(() -> interceptor.preSend(subscribe("/sub/user/1/rooms"), channel));
         assertDoesNotThrow(() -> interceptor.preSend(subscribe("/user/queue/chat-errors"), channel));
         assertDoesNotThrow(() -> interceptor.preSend(subscribe("/user/queue/chat-acks"), channel));
+        assertDoesNotThrow(() -> interceptor.preSend(subscribe("/user/queue/notifications"), channel));
     }
 
     @Test
@@ -73,9 +74,33 @@ class ChatStompInterceptorTest {
 
     @Test
     void rechecksAccountRestrictionOnEverySendFrame() {
-        assertDoesNotThrow(() -> interceptor.preSend(send(), channel));
+        assertDoesNotThrow(() -> interceptor.preSend(send("/pub/chat/message"), channel));
 
         verify(accountAccessGuard).requireActive(1L);
+    }
+
+    @Test
+    void allowsOnlyKnownApplicationSendDestinations() {
+        assertDoesNotThrow(() -> interceptor.preSend(send("/pub/chat/message"), channel));
+        assertDoesNotThrow(() -> interceptor.preSend(send("/send/chat/message"), channel));
+        assertDoesNotThrow(() -> interceptor.preSend(send("/pub/chat/room/99/leave"), channel));
+        assertDoesNotThrow(() -> interceptor.preSend(send("/send/chat/room/99/leave"), channel));
+    }
+
+    @Test
+    void rejectsSendDirectlyToBrokerDestination() {
+        CustomException ex = assertThrows(CustomException.class,
+                () -> interceptor.preSend(send("/sub/chat/room/99"), channel));
+
+        assertThat(ex.getErrorCode()).isEqualTo(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);
+    }
+
+    @Test
+    void rejectsUnknownApplicationSendDestination() {
+        CustomException ex = assertThrows(CustomException.class,
+                () -> interceptor.preSend(send("/pub/admin/secret"), channel));
+
+        assertThat(ex.getErrorCode()).isEqualTo(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);
     }
 
     @Test
@@ -84,7 +109,7 @@ class ChatStompInterceptorTest {
                 .when(accountAccessGuard).requireActive(1L);
 
         CustomException ex = assertThrows(CustomException.class,
-                () -> interceptor.preSend(send(), channel));
+                () -> interceptor.preSend(send("/pub/chat/message"), channel));
 
         assertThat(ex.getErrorCode()).isEqualTo(AuthErrorCode.ACTIVE_ACCOUNT_REQUIRED);
     }
@@ -96,9 +121,9 @@ class ChatStompInterceptorTest {
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 
-    private Message<byte[]> send() {
+    private Message<byte[]> send(String destination) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
-        accessor.setDestination("/app/chat/message");
+        accessor.setDestination(destination);
         accessor.setSessionAttributes(sessionAttributes());
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }

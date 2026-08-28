@@ -9,6 +9,7 @@ import CamNecT.server.domain.community.model.enums.BoardCode;
 import CamNecT.server.domain.community.model.enums.PostAccessType;
 import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.global.common.config.QuerydslConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +37,7 @@ class PostsRepositoryAccessSearchTest {
         Users nonBuyer = persistUser("nonbuyer");
         Users purchaser = persistUser("purchaser");
         Users answerAuthor = persistUser("answer-author");
+        Users administrator = persistUser("administrator", UserRole.ADMIN);
         Boards question = entityManager.persist(Boards.of(BoardCode.QUESTION, "질문"));
         Boards info = entityManager.persist(Boards.of(BoardCode.INFO, "정보"));
 
@@ -53,20 +55,27 @@ class PostsRepositoryAccessSearchTest {
         List<Long> ownerResult = searchBody(owner.getUserId());
         List<Long> purchaserResult = searchBody(purchaser.getUserId());
         List<Long> answerAuthorResult = searchBody(answerAuthor.getUserId());
+        List<Long> administratorResult = searchBody(administrator.getUserId(), true);
 
         assertThat(nonBuyerResult).containsExactlyInAnyOrder(waiting.getId(), freeInfo.getId());
         assertThat(ownerResult).containsExactlyInAnyOrder(locked.getId(), waiting.getId(), freeInfo.getId());
         assertThat(purchaserResult).containsExactlyInAnyOrder(locked.getId(), waiting.getId(), freeInfo.getId());
         assertThat(answerAuthorResult).containsExactlyInAnyOrder(locked.getId(), waiting.getId(), freeInfo.getId());
+        assertThat(administratorResult).containsExactlyInAnyOrder(locked.getId(), waiting.getId(), freeInfo.getId());
     }
 
     private List<Long> searchBody(Long viewerUserId) {
+        return searchBody(viewerUserId, false);
+    }
+
+    private List<Long> searchBody(Long viewerUserId, boolean adminRead) {
         return postsRepository.findFeedLatestWithFilter(
                         PostStatus.PUBLISHED,
                         null,
                         null,
                         "needle",
                         viewerUserId,
+                        adminRead,
                         PostAccessType.POINT_REQUIRED,
                         BoardCode.QUESTION,
                         null,
@@ -77,11 +86,16 @@ class PostsRepositoryAccessSearchTest {
     }
 
     private Users persistUser(String suffix) {
+        return persistUser(suffix, UserRole.USER);
+    }
+
+    private Users persistUser(String suffix, UserRole role) {
         return entityManager.persist(Users.builder()
                 .username("search-" + suffix)
                 .passwordHash("hash")
                 .name(suffix)
                 .email(suffix + "@example.com")
+                .role(role)
                 .build());
     }
 

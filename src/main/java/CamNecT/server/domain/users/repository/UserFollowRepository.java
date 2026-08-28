@@ -2,6 +2,7 @@ package CamNecT.server.domain.users.repository;
 
 import CamNecT.server.domain.users.model.UserFollow;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -29,4 +30,8 @@ public interface UserFollowRepository extends JpaRepository<UserFollow, Long> {
 
     @Query("SELECT f.followerId FROM UserFollow f WHERE f.followingId = :followingId")
     List<Long> findFollowerIdsByFollowingId(@Param("followingId") Long followingId);
+
+    @Modifying
+    @Query("DELETE FROM UserFollow f WHERE f.followerId = :userId OR f.followingId = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 }

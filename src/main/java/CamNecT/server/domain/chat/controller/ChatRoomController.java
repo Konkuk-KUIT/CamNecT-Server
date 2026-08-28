@@ -104,7 +104,7 @@ public class ChatRoomController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "48402 채팅방이 없거나 참여자가 아님 / 48404 연결된 요청 정보 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "50000 채팅방 퇴장·요청 종료 또는 내부 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
-    @PatchMapping("/room/{roomId}/exit")
+    @PatchMapping({"/room/{roomId}/exit", "/room/{roomId}/complete-exit"})
     public ApiResponse<Void> exitRoom(@Parameter(description = "채팅방 ID") @PathVariable @Positive Long roomId, @UserId Long userId) {
         chatService.exitOfChatRoom(roomId, userId);
         return ApiResponse.success(null);

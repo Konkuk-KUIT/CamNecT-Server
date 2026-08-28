@@ -21,6 +21,7 @@ import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.ErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
@@ -31,6 +32,7 @@ import CamNecT.server.global.notification.model.NotificationType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -49,13 +51,14 @@ public class RecruitmentService {
     private final TeamApplicationRepository teamApplicationRepository;
     private final UserRepository userRepository;
     private final ChatRequestRepository chatRequestRepository;
+    private final AccountAccessGuard accountAccessGuard;
 
     private final ApplicationEventPublisher eventPublisher;
     private final AuthorAssembler authorAssembler;
 
     @Transactional
     public TeamRecruitment createRecruitment(Long userId, RecruitmentRequest request) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         if (request == null || request.activityId() == null) {
             throw new CustomException(ErrorCode.BAD_REQUEST);
         }
@@ -110,7 +113,7 @@ public class RecruitmentService {
 
     @Transactional
     public void updateRecruitment(Long userId, Long recruitmentId, RecruitmentRequest request) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         // 1. 모집글 조회
         TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitmentId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
@@ -131,12 +134,10 @@ public class RecruitmentService {
 
     @Transactional
     public boolean toggleRecruitmentBookmark(Long userId, Long recruitId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         //모집글 조회 (북마크 카운트 업데이트를 위해 엔티티 조회)
         TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
-
-        userRepository.lockUserRow(userId);
 
         //북마크 존재 여부 확인
         Optional<RecruitmentBookmark> bookmarkOpt = bookmarkRepository.findByUserIdAndRecruitId(userId, recruitId);
@@ -158,15 +159,23 @@ public class RecruitmentService {
         }
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long applyToTeam(Long userId, Long recruitId, RecruitmentApplyRequest request) {
-        Users requester = requireAuthenticatedUser(userId);
+        // Preserve authentication error precedence without loading an entity into the
+        // persistence context before the ordered user-row locks are acquired.
+        accountAccessGuard.requireAccessibleSnapshot(userId);
+        Long receiverId = recruitmentRepository.findUserIdByRecruitId(recruitId)
+                .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
+        LockedUsers lockedUsers = lockActorAndOtherUserInOrder(userId, receiverId);
+        Users requester = lockedUsers.actor();
+        Users receiver = lockedUsers.other();
+        if (receiver.getStatus() == UserStatus.WITHDRAWN) {
+            throw new CustomException(AuthErrorCode.USER_NOT_FOUND);
+        }
 
         //공고 존재 여부 확인
         TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
-
-        userRepository.lockUserRow(userId);
 
         //본인이 작성한 글인지 확인 (본인 글에는 신청 불가)
         if (recruitment.getUserId().equals(userId)) {
@@ -192,9 +201,6 @@ public class RecruitmentService {
 
 
         // 커피챗 요청 로직
-        Users receiver = userRepository.findById(recruitment.getUserId())
-                .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
-
         if (requester.equals(receiver)) {
             throw new CustomException(CoffeeChatErrorCode.SELF_REQUEST_NOT_ALLOWED);
         }
@@ -242,7 +248,7 @@ public class RecruitmentService {
 
     @Transactional
     public void closeRecruitment(Long userId, Long recruitId) {
-        requireAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
         // 1. 모집글 조회
         TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
@@ -280,20 +286,37 @@ public class RecruitmentService {
      */
     @Transactional
     public void deleteRecruitment(Long userId, Long recruitId) {
-        requireAuthenticatedUser(userId);
+        Users actor = accountAccessGuard.requireAccessibleForUpdate(userId);
         
         // 1. 모집글 조회
         TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
 
         // 2. 작성자 본인 또는 관리자 확인
-        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAdmin = actor.getRole() == UserRole.ADMIN;
         boolean isAuthor = Objects.equals(recruitment.getUserId(), userId);
 
         if (!isAdmin && !isAuthor) {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
 
+        deleteLockedRecruitment(recruitment);
+    }
+
+    @Transactional
+    public void deleteRecruitmentForModeration(Long adminId, Long recruitId) {
+        TeamRecruitment recruitment = recruitmentRepository.findByIdForUpdate(recruitId)
+                .orElseThrow(() -> new CustomException(ActivityErrorCode.RECRUITMENT_NOT_FOUND));
+
+        if (!userRepository.existsByUserIdAndRole(adminId, UserRole.ADMIN)) {
+            throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
+        }
+
+        deleteLockedRecruitment(recruitment);
+    }
+
+    private void deleteLockedRecruitment(TeamRecruitment recruitment) {
+        Long recruitId = recruitment.getRecruitId();
         // 3. 수락 처리와 경합하지 않도록 대기 요청을 잠근 뒤 거절
         List<ChatRequest> waitingRequests = chatRequestRepository.findAllByRecruitmentIdAndTypeAndStatusForUpdate(
                 ChatRequest.RequestType.TEAM_RECRUIT,
@@ -321,4 +344,26 @@ public class RecruitmentService {
         }
         return user;
     }
+
+    private LockedUsers lockActorAndOtherUserInOrder(Long actorId, Long otherUserId) {
+        if (actorId.equals(otherUserId)) {
+            Users actor = accountAccessGuard.requireAccessibleForUpdate(actorId);
+            return new LockedUsers(actor, actor);
+        }
+
+        if (actorId < otherUserId) {
+            Users actor = accountAccessGuard.requireAccessibleForUpdate(actorId);
+            Users other = userRepository.findByIdForUpdate(otherUserId)
+                    .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
+            return new LockedUsers(actor, other);
+        }
+
+        Optional<Users> lockedOther = userRepository.findByIdForUpdate(otherUserId);
+        Users actor = accountAccessGuard.requireAccessibleForUpdate(actorId);
+        Users other = lockedOther
+                .orElseThrow(() -> new CustomException(AuthErrorCode.USER_NOT_FOUND));
+        return new LockedUsers(actor, other);
+    }
+
+    private record LockedUsers(Users actor, Users other) {}
 }

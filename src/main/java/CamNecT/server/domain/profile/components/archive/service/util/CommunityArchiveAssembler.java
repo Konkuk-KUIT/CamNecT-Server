@@ -16,13 +16,13 @@ public class CommunityArchiveAssembler {
 
     private final PostSummaryAssembler postSummaryAssembler;
 
-    public CommunityAssembleResult assemble(Long userId, List<Posts> posts) {
+    public CommunityAssembleResult assemble(Long userId, boolean adminRead, List<Posts> posts) {
 
         if (posts == null || posts.isEmpty()) {
             return new CommunityAssembleResult(List.of(), null);
         }
 
-        var res = postSummaryAssembler.assemble(userId, posts);
+        var res = postSummaryAssembler.assemble(userId, adminRead, posts);
 
         List<MyArchiveResponse.Item> items = res.items().stream()
                 .map(MyArchiveResponse.CommunityItem::from)

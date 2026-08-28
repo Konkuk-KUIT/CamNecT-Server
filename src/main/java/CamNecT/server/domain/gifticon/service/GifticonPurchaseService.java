@@ -6,6 +6,8 @@ import CamNecT.server.domain.gifticon.model.GifticonProduct;
 import CamNecT.server.domain.gifticon.model.GifticonPurchase;
 import CamNecT.server.domain.gifticon.repository.GifticonProductRepository;
 import CamNecT.server.domain.gifticon.repository.GifticonPurchaseRepository;
+import CamNecT.server.domain.report.service.UserReportPenaltyService;
+import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.global.point.model.PointEvent;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.domain.users.model.Users;
@@ -30,6 +32,7 @@ public class GifticonPurchaseService {
     private final GifticonPurchaseRepository purchaseRepository;
     private final UserRepository userRepository;
     private final PointService pointService;
+    private final UserReportPenaltyService userReportPenaltyService;
 
     @Transactional
     public GifticonPurchaseConfirmResponse confirm(Long userId, ConfirmGifticonPurchaseRequest req) {
@@ -48,6 +51,14 @@ public class GifticonPurchaseService {
                 throw new CustomException(GifticonErrorCode.DUPLICATE_REQUEST);
             }
             return new GifticonPurchaseConfirmResponse(exists.getId(), exists.getRequestedAt());
+        }
+
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        }
+        if (user.getStatus() == UserStatus.SUSPENDED
+                || userReportPenaltyService.hasActiveRestriction(userId, user.getStatus())) {
+            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
         }
 
         GifticonProduct product = productRepository.findById(req.productId())
@@ -93,8 +104,8 @@ public class GifticonPurchaseService {
         }
 
         // 3) 포인트 차감 (PointService 사용)
-        // 멱등키(eventKey)는 clientRequestId 기반으로 잡습니다.
-        PointEvent event = PointEvent.gifticonPurchase(userId, purchase.getId(), req.clientRequestId());
+        // 구매 레코드가 clientRequestId 멱등성을 보장하므로 포인트 이벤트는 길이가 제한된 purchaseId를 사용합니다.
+        PointEvent event = PointEvent.gifticonPurchase(userId, purchase.getId());
         pointService.spendPoint(userId, (int) expected, event);
 
         return new GifticonPurchaseConfirmResponse(purchase.getId(), purchase.getRequestedAt());

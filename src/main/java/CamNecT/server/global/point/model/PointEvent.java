@@ -22,10 +22,8 @@ public record PointEvent(
         return new PointEvent(PointSource.THREELIKES_REWARD,postId, null, key);
     }
 
-    public static PointEvent gifticonPurchase(Long userId, Long purchaseId, String clientRequestId) {
-        String key = (clientRequestId != null && !clientRequestId.isBlank())
-                ? "GIFTICON_PURCHASE:" + userId + ":" + clientRequestId
-                : "GIFTICON_PURCHASE:" + userId + ":" + purchaseId;
+    public static PointEvent gifticonPurchase(Long userId, Long purchaseId) {
+        String key = "GIFTICON_PURCHASE:" + userId + ":" + purchaseId;
 
         // requestId 자리에 purchaseId를 담습니다(기존 필드 재활용)
         return new PointEvent(PointSource.GIFTICON_PURCHASE, null, purchaseId, key);

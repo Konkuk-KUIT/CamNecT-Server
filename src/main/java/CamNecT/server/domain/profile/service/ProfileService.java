@@ -25,6 +25,7 @@ import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.repository.UserTagMapRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.StorageErrorCode;
@@ -59,11 +60,13 @@ public class ProfileService {
 
     private static final Set<String> PROFILE_IMAGE_ALLOWED =
             Set.of("image/jpeg", "image/png", "image/webp");
-    
+
+    private static final String LEGACY_DEFAULT_PORTFOLIO_THUMB = "기본이미지";
     private static final String DEFAULT_PORTFOLIO_THUMB_KEY =
             "camnect/portfolio/default/camnect_default_portfolio_thumbnail.png";
 
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final CertificateRepository certificateRepository;
     private final ExperienceRepository experienceRepository;
     private final UserProfileRepository userProfileRepository;
@@ -106,7 +109,9 @@ public class ProfileService {
         int myPoints = isOwner ? pointService.getBalance(profileUserId) : 0;
 
         List<PortfolioPreviewResponse> portfolioPreviewResponses =
-                portfolioRepository.findPreviewsByUserId(profileUserId).stream()
+                (isOwner
+                        ? portfolioRepository.findPreviewsByUserId(profileUserId)
+                        : portfolioRepository.findPublicPreviewsByUserId(profileUserId)).stream()
                         .map(this::toCdnPreview)
                         .toList();
 
@@ -161,7 +166,7 @@ public class ProfileService {
 
     @Transactional
     public void updatePrivacy(Long userId, UpdatePrivacyRequest request) {
-        userRepository.lockUserRow(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         UserProfile profile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
@@ -176,24 +181,20 @@ public class ProfileService {
 
     @Transactional
     public ProfileStatusResponse updateBio(Long userId, String bio) {
-        userRepository.lockUserRow(userId);
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
 
         userProfile.updateBio(bio);
 
-        return new ProfileStatusResponse(userProfile.getUser().getStatus());
+        return new ProfileStatusResponse(user.getStatus());
     }
 
     @Transactional
     public ProfileStatusResponse createOnboarding(Long userId, UpdateOnboardingRequest req) {
 
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-
-        requireAccessible(user);
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
         if (user.getStatus() != UserStatus.ACTIVE || userProfile.isInitialSetupCompleted()) {
@@ -251,11 +252,7 @@ public class ProfileService {
     @Transactional
     public ProfileStatusResponse updateProfileTags(Long userId, UpdateProfileTagsRequest req) {
 
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-
-        requireAccessible(user);
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
 
         List<Long> tagIds = (req.tagIds() == null) ? List.of() : req.tagIds().stream().distinct().toList();
 
@@ -279,10 +276,7 @@ public class ProfileService {
 
     @Transactional
     public PresignUploadResponse presignProfileImageUpload(Long userId, PresignUploadRequest req) {
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-        requireAccessible(user);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         String ct = globalPresignMethods.normalize(req.contentType());
 
@@ -307,10 +301,7 @@ public class ProfileService {
     @Transactional
     public void updateMyProfileImage(Long userId, UpdateProfileImageRequest req) {
 
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-        requireAccessible(user);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         UserProfile profile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_PROFILE_NOT_FOUND));
@@ -335,15 +326,6 @@ public class ProfileService {
         // 기존 이미지 정리(새 키와 다를 때만)
         if (StringUtils.hasText(oldKey) && !Objects.equals(oldKey, newFinalKey)) {
             globalPresignMethods.deleteAfterCommit(Set.of(oldKey));
-        }
-    }
-
-    private void requireAccessible(Users user) {
-        if (user.getStatus() == UserStatus.SUSPENDED) {
-            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
-        }
-        if (user.getStatus() == UserStatus.WITHDRAWN) {
-            throw new CustomException(AuthErrorCode.USER_WITHDRAWN);
         }
     }
 
@@ -383,7 +365,9 @@ public class ProfileService {
     }
 
     private String portfolioThumbOrDefault(String key) {
-        String safeKey = StringUtils.hasText(key) ? key : DEFAULT_PORTFOLIO_THUMB_KEY;
+        String safeKey = StringUtils.hasText(key) && !LEGACY_DEFAULT_PORTFOLIO_THUMB.equals(key.trim())
+                ? key
+                : DEFAULT_PORTFOLIO_THUMB_KEY;
 
         try {
             String url = publicUrlIssuer.issueImagePublicUrl(safeKey);

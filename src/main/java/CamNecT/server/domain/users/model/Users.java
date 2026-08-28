@@ -8,7 +8,10 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "Users") // 테이블명
+@Table(
+        name = "Users",
+        indexes = @Index(name = "idx_users_status_user_id", columnList = "status,user_id")
+) // 테이블명
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED) // JPA 기본 생성자
 @AllArgsConstructor

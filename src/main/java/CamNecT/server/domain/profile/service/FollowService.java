@@ -3,11 +3,13 @@ package CamNecT.server.domain.profile.service;
 import CamNecT.server.domain.profile.dto.ProfileGlobalDto;
 import CamNecT.server.domain.profile.dto.response.FollowListResponse;
 import CamNecT.server.domain.users.model.UserFollow;
+import CamNecT.server.domain.users.model.UserStatus;
+import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserFollowRepository;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
-import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
 import lombok.RequiredArgsConstructor;
@@ -24,20 +26,20 @@ import java.util.stream.Collectors;
 public class FollowService {
     private final UserFollowRepository followRepository;
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final UserProfileRepository userProfileRepository;
     private final PublicUrlIssuer publicUrlIssuer;
 
     @Transactional
     public void follow(Long followerId, Long followingId) {
-        if (!userRepository.existsById(followerId)) {
-            throw new CustomException(AuthErrorCode.INVALID_TOKEN);
-        }
-
         if (followerId.equals(followingId)) {
             throw new CustomException(UserErrorCode.SELF_FOLLOW_NOT_ALLOWED);
         }
 
-        if (!userRepository.existsById(followingId)) {
+        Map<Long, Users> lockedUsers = lockUsersInOrder(followerId, followingId);
+        Users following = lockedUsers.get(followingId);
+        accountAccessGuard.requireAccessibleForUpdate(followerId);
+        if (following == null || following.getStatus() == UserStatus.WITHDRAWN) {
             throw new CustomException(UserErrorCode.USER_NOT_FOUND);
         }
 
@@ -54,6 +56,8 @@ public class FollowService {
 
     @Transactional
     public void unfollow(Long followerId, Long followingId) {
+        accountAccessGuard.requireAccessibleForUpdate(followerId);
+
         if (!followRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
             throw new CustomException(UserErrorCode.FOLLOW_NOT_FOUND);
         }
@@ -117,4 +121,14 @@ public class FollowService {
 
         return new FollowListResponse(dtoList, dtoList.size());
     }
+
+    private Map<Long, Users> lockUsersInOrder(Long followerId, Long followingId) {
+        Map<Long, Users> users = new HashMap<>();
+        List<Long> orderedIds = List.of(followerId, followingId).stream().sorted().toList();
+        for (Long userId : orderedIds) {
+            userRepository.findByIdForUpdate(userId).ifPresent(user -> users.put(userId, user));
+        }
+        return users;
+    }
+
 }

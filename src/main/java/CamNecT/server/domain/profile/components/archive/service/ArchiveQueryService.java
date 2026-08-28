@@ -10,6 +10,8 @@ import CamNecT.server.domain.profile.components.ProfileComponentAccessGuard;
 import CamNecT.server.domain.profile.components.archive.service.util.CommunityArchiveAssembler;
 import CamNecT.server.domain.profile.components.archive.service.util.ExternalArchiveAssembler;
 import CamNecT.server.domain.profile.components.archive.service.util.RecruitmentArchiveAssembler;
+import CamNecT.server.domain.users.model.UserRole;
+import CamNecT.server.domain.users.model.Users;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
@@ -34,8 +36,9 @@ public class ArchiveQueryService {
 
     public MyArchiveResponse getCommunityArchive(Long userId, MyArchiveResponse.ArchiveKind kind, MyArchiveResponse.Sort sort,
                                                  Long cursorId, Long cursorValue, int size) {
-        accessGuard.requireAuthenticatedUser(userId);
-        return communityArchive(kind, userId, sort, cursorId, cursorValue, size);
+        Users viewer = accessGuard.requireAuthenticatedUser(userId);
+        return communityArchive(kind, userId, viewer.getRole() == UserRole.ADMIN,
+                sort, cursorId, cursorValue, size);
     }
     public MyArchiveResponse getExternalArchive(Long userId, MyArchiveResponse.ArchiveKind kind, MyArchiveResponse.Sort sort,
                                                 Long cursorId, Long cursorValue, int size) {
@@ -51,6 +54,7 @@ public class ArchiveQueryService {
 
     private MyArchiveResponse communityArchive(MyArchiveResponse.ArchiveKind kind,
                                                Long userId,
+                                               boolean adminRead,
                                                MyArchiveResponse.Sort sort,
                                                Long cursorId,
                                                Long cursorValue,
@@ -73,7 +77,7 @@ public class ArchiveQueryService {
             return new MyArchiveResponse(MyArchiveResponse.Tab.COMMUNITY, sort, List.of(), slice.hasNext(), null, null);
         }
 
-        var assembled = communityArchiveAssembler.assemble(userId,posts);
+        var assembled = communityArchiveAssembler.assemble(userId, adminRead, posts);
         Posts last = posts.getLast();
 
         Long nextCursorValue = (sort == MyArchiveResponse.Sort.RECOMMENDED) ? assembled.nextHotScore() : null;

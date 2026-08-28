@@ -13,7 +13,7 @@ public class NotificationWsPublisher {
     private final SimpMessagingTemplate messagingTemplate;
 
     public void sendToUser(Long userId, Object payload) {
-        log.info("[ws-notif] sendToUser userId={}, payload={}", userId, payload);
+        log.debug("[ws-notif] sendToUser userId={}, payload={}", userId, payload);
         messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/notifications", payload);
     } // FE는 /user/queue/notifications 구독
 }

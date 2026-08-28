@@ -2,17 +2,20 @@ package CamNecT.server.domain.chat.service;
 
 import CamNecT.server.domain.chat.dto.message.ChatMessageResponseDto;
 import CamNecT.server.domain.chat.dto.message.ChatReadEvent;
+import CamNecT.server.domain.chat.dto.room.ChatRoomListUpdateDto;
 import CamNecT.server.domain.chat.event.ChatMessageCommittedEvent;
 import CamNecT.server.domain.chat.event.ChatReadCommittedEvent;
 import CamNecT.server.domain.chat.event.ChatRoomClosedCommittedEvent;
 import CamNecT.server.domain.chat.repository.ChatRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,6 +30,7 @@ class ChatRealtimeDeliveryServiceTest {
     void messageDeliveryUpdatesRoomAndBothRoomLists() {
         ChatMessageCommittedEvent event = messageEvent();
         when(chatRepository.countByRoom_IdAndReceiver_UserIdAndIsReadFalse(99L, 2L)).thenReturn(4L);
+        when(chatRepository.countByRoom_IdAndReceiver_UserIdAndIsReadFalse(99L, 1L)).thenReturn(3L);
         when(chatRepository.countVisibleUnreadByUserId(2L)).thenReturn(7L);
         when(chatRepository.countVisibleUnreadByUserId(1L)).thenReturn(2L);
 
@@ -34,7 +38,10 @@ class ChatRealtimeDeliveryServiceTest {
 
         verify(messagingTemplate).convertAndSend("/sub/chat/room/99", event.message());
         verify(messagingTemplate).convertAndSend(eq("/sub/user/2/rooms"), any(Object.class));
-        verify(messagingTemplate).convertAndSend(eq("/sub/user/1/rooms"), any(Object.class));
+        ArgumentCaptor<ChatRoomListUpdateDto> senderUpdate =
+                ArgumentCaptor.forClass(ChatRoomListUpdateDto.class);
+        verify(messagingTemplate).convertAndSend(eq("/sub/user/1/rooms"), senderUpdate.capture());
+        assertThat(senderUpdate.getValue().getUnreadCount()).isEqualTo(3L);
     }
 
     @Test

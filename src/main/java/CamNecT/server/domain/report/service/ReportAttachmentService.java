@@ -4,11 +4,8 @@ import CamNecT.server.domain.report.model.Report;
 import CamNecT.server.domain.report.model.ReportEvidence;
 import CamNecT.server.domain.report.model.props.ReportEvidenceProps;
 import CamNecT.server.domain.report.repository.ReportEvidenceRepository;
-import CamNecT.server.domain.users.model.UserStatus;
-import CamNecT.server.domain.users.model.Users;
-import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
-import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.StorageErrorCode;
 import CamNecT.server.global.storage.dto.request.PresignUploadBatchRequest;
 import CamNecT.server.global.storage.dto.response.PresignUploadBatchResponse;
@@ -38,7 +35,7 @@ public class ReportAttachmentService {
 
     private static final Set<String> EVIDENCE_ALLOWED = Set.of("image/jpeg", "image/png", "image/webp");
 
-    private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
     private final PresignEngine presignEngine;
     private final UploadTicketRepository ticketRepo;
     private final ReportEvidenceRepository evidenceRepository;
@@ -61,7 +58,7 @@ public class ReportAttachmentService {
             throw new CustomException(StorageErrorCode.INVALID_ATTACHMENT_METADATA);
         }
 
-        lockAuthenticatedUser(userId);
+        accountAccessGuard.requireAccessibleForUpdate(userId);
 
         List<PresignEngine.IssueItem> issueItems = new ArrayList<>(items.size());
         for (PresignUploadBatchRequest.Item item : items) {
@@ -97,7 +94,8 @@ public class ReportAttachmentService {
             }
         }
 
-        Map<String, UploadTicket> ticketsByKey = ticketRepo.findAllByStorageKeyIn(evidenceKeys).stream()
+        List<String> lockKeys = evidenceKeys.stream().sorted().toList();
+        Map<String, UploadTicket> ticketsByKey = ticketRepo.findAllByStorageKeyInForUpdate(lockKeys).stream()
                 .collect(Collectors.toMap(UploadTicket::getStorageKey, Function.identity()));
         String finalPrefix = "reports/user-" + userId + "/report-" + report.getReportId() + "/evidence";
         List<ReportEvidence> evidence = new ArrayList<>(evidenceKeys.size());
@@ -152,13 +150,4 @@ public class ReportAttachmentService {
         return contentType;
     }
 
-    private Users lockAuthenticatedUser(Long userId) {
-        userRepository.lockUserRow(userId);
-        Users user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-        if (user.getStatus() == UserStatus.SUSPENDED) {
-            throw new CustomException(AuthErrorCode.USER_SUSPENDED);
-        }
-        return user;
-    }
 }

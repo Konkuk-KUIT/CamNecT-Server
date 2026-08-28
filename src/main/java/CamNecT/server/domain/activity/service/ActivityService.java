@@ -25,6 +25,7 @@ import CamNecT.server.domain.home.dto.HomeResponse;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
 import CamNecT.server.global.common.response.errorcode.bydomains.ActivityErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.UserErrorCode;
@@ -65,6 +66,7 @@ public class ActivityService {
     private final TagRepository tagRepository;
     private final TeamRecruitmentRepository teamRecruitmentRepository;
     private final UserRepository userRepository;
+    private final AccountAccessGuard accountAccessGuard;
 
     private final AuthorAssembler authorAssembler;
 
@@ -104,10 +106,13 @@ public class ActivityService {
 
     @Transactional
     public ActivityPreviewResponse create(Long userId, ActivityRequest request) {
-        Users userRef = userRepository.getReferenceById(userId);
+        validateGeneralActivityCategory(request.category());
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
+        validateActiveTagIds(request.tagIds());
+
         // 1. 엔티티 기본 저장
         ExternalActivity saved = activityRepository.save(ExternalActivity.builder()
-                .user(userRef)
+                .user(user)
                 .title(request.title())
                 .category(request.category())
                 .context(request.content())
@@ -193,10 +198,9 @@ public class ActivityService {
             throw new CustomException(ActivityErrorCode.INVALID_ACTIVITY_CATEGORY);
         }
 
-        Users adminUser = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-
+        Users adminUser = accountAccessGuard.requireAccessibleForUpdate(userId);
         if (adminUser.getRole() != UserRole.ADMIN) throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        validateActiveTagIds(request.tagIds());
 
         ExternalActivity saved = activityRepository.save(ExternalActivity.builder()
                 .user(adminUser)
@@ -247,12 +251,17 @@ public class ActivityService {
 
     @Transactional
     public void update(Long userId, Long activityId, ActivityRequest request) {
+        validateGeneralActivityCategory(request.category());
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
         if (activity.getUser() == null || !Objects.equals(activity.getUser().getUserId(), userId)) {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
+        validateGeneralActivityCategory(activity.getCategory());
+        validateActiveTagIds(request.tagIds());
 
         Set<String> deleteAfterCommit = new HashSet<>();
 
@@ -403,6 +412,11 @@ public class ActivityService {
             throw new CustomException(ActivityErrorCode.INVALID_ACTIVITY_CATEGORY);
         }
 
+        Users admin = accountAccessGuard.requireAccessibleForUpdate(adminId);
+        if (admin.getRole() != UserRole.ADMIN) {
+            throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        }
+
         // 2. 활동 조회
         ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
@@ -411,9 +425,7 @@ public class ActivityService {
         if (activity.getCategory() != ActivityCategory.EXTERNAL && activity.getCategory() != ActivityCategory.RECRUITMENT) {
             throw new CustomException(ActivityErrorCode.INVALID_ACTIVITY_CATEGORY);
         }
-        if (!userRepository.existsByUserIdAndRole(adminId, UserRole.ADMIN)) {
-            throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
-        }
+        validateActiveTagIds(request.tagIds());
 
         Set<String> deleteAfterCommit = new HashSet<>();
         String finalThumbPrefix = "activity/activities/activity-" + activity.getActivityId() + "/attachments/thumbnail";
@@ -456,10 +468,12 @@ public class ActivityService {
 
     @Transactional
     public void delete(Long activityId, Long userId) {
+        Users actor = accountAccessGuard.requireAccessibleForUpdate(userId);
+
         ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
 
-        boolean isAdmin = userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+        boolean isAdmin = actor.getRole() == UserRole.ADMIN;
         boolean isAuthor =  activity.getUser() != null && Objects.equals(activity.getUser().getUserId(), userId);
 
 
@@ -467,6 +481,23 @@ public class ActivityService {
             throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
         }
 
+        deleteLockedActivity(activity);
+    }
+
+    @Transactional
+    public void deleteForModeration(Long adminId, Long activityId) {
+        ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
+                .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
+
+        if (!userRepository.existsByUserIdAndRole(adminId, UserRole.ADMIN)) {
+            throw new CustomException(ActivityErrorCode.NOT_AUTHOR);
+        }
+
+        deleteLockedActivity(activity);
+    }
+
+    private void deleteLockedActivity(ExternalActivity activity) {
+        Long activityId = activity.getActivityId();
         if (teamRecruitmentRepository.existsByActivityId(activityId)) {
             throw new CustomException(ActivityErrorCode.ACTIVITY_HAS_RECRUITMENTS);
         }
@@ -598,6 +629,8 @@ public class ActivityService {
 
     @Transactional
     public void closeActivity(Long userId, Long activityId) {
+        accountAccessGuard.requireAccessibleForUpdate(userId);
+
         // 1. 대외활동 조회
         ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
@@ -622,7 +655,12 @@ public class ActivityService {
     }
 
     @Transactional
-    public void closeActivityAdmin(Long activityId) {
+    public void closeActivityAdmin(Long adminId, Long activityId) {
+        Users admin = accountAccessGuard.requireAccessibleForUpdate(adminId);
+        if (admin.getRole() != UserRole.ADMIN) {
+            throw new CustomException(UserErrorCode.USER_NOT_ADMIN);
+        }
+
         // 1. 대외활동 조회
         ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
@@ -643,6 +681,8 @@ public class ActivityService {
 
     @Transactional
     public boolean toggleActivityBookmark(Long userId, Long activityId) {
+        Users user = accountAccessGuard.requireAccessibleForUpdate(userId);
+
         // 삭제·수정과 북마크 변경을 동일 활동 행 기준으로 직렬화한다.
         ExternalActivity activity = activityRepository.findByIdForUpdate(activityId)
                 .orElseThrow(() -> new CustomException(ActivityErrorCode.ACTIVITY_NOT_FOUND));
@@ -656,8 +696,7 @@ public class ActivityService {
             activityBookmarkRepository.delete(bookmarkOpt.get());
             return false; // 해제됨을 반환
         } else {
-            Users userRef = userRepository.getReferenceById(userId);
-            ExternalActivityBookmark newBookmark = ExternalActivityBookmark.of(userRef, activity);
+            ExternalActivityBookmark newBookmark = ExternalActivityBookmark.of(user, activity);
             activityBookmarkRepository.save(newBookmark);
             return true;
         }
@@ -695,6 +734,25 @@ public class ActivityService {
     }
 
     // --- Helper Methods ---
+
+    private void validateGeneralActivityCategory(ActivityCategory category) {
+        if (category != ActivityCategory.STUDY && category != ActivityCategory.CLUB) {
+            throw new CustomException(ActivityErrorCode.INVALID_ACTIVITY_CATEGORY);
+        }
+    }
+
+    private void validateActiveTagIds(List<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) return;
+
+        if (tagIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new CustomException(ActivityErrorCode.INVALID_TAG_IDS);
+        }
+
+        List<Long> uniqueIds = tagIds.stream().distinct().toList();
+        if (tagRepository.findExistingActiveIds(uniqueIds).size() != uniqueIds.size()) {
+            throw new CustomException(ActivityErrorCode.INVALID_TAG_IDS);
+        }
+    }
 
     /**
      * thumbnail 전용 URL 제공 메서드

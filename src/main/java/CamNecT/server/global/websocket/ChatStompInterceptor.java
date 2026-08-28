@@ -19,10 +19,16 @@ import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
+import java.util.regex.Pattern;
+
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ChatStompInterceptor implements ChannelInterceptor {
+
+    private static final Pattern CHAT_ROOM_LEAVE_DESTINATION = Pattern.compile(
+            "^/(?:pub|send)/chat/room/[1-9]\\d*/leave$"
+    );
 
     private final JwtUtil jwtUtil;
     private final AccountAccessGuard accountAccessGuard;
@@ -70,6 +76,8 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             Long userId = requireActiveSessionUser(accessor);
             if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
                 authorizeSubscription(accessor, userId);
+            } else {
+                authorizeSend(accessor);
             }
         }
 
@@ -104,7 +112,8 @@ public class ChatStompInterceptor implements ChannelInterceptor {
         }
 
         if (destination.equals("/user/queue/chat-errors")
-                || destination.equals("/user/queue/chat-acks")) {
+                || destination.equals("/user/queue/chat-acks")
+                || destination.equals("/user/queue/notifications")) {
             return;
         }
 
@@ -125,6 +134,17 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             } catch (NumberFormatException e) {
                 throw new CustomException(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED, e);
             }
+            return;
+        }
+
+        throw new CustomException(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);
+    }
+
+    private void authorizeSend(StompHeaderAccessor accessor) {
+        String destination = accessor.getDestination();
+        if ("/pub/chat/message".equals(destination)
+                || "/send/chat/message".equals(destination)
+                || destination != null && CHAT_ROOM_LEAVE_DESTINATION.matcher(destination).matches()) {
             return;
         }
 

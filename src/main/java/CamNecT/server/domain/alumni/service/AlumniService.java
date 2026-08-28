@@ -113,10 +113,10 @@ public class AlumniService {
     @Transactional(readOnly = true)
     public HomeResponse.AlumniSection getHomePreview(Long myId, int limit) {
 
-        Pageable defaultPageable = PageRequest.of(0, 20);
+        Pageable pageable = PageRequest.of(0, limit);
 
         // 1) 추천 정렬된 ID 목록
-        List<Long> orderedIds = alumniRepository.findAlumniIdsByConditions(myId, null, List.of(), defaultPageable);
+        List<Long> orderedIds = alumniRepository.findAlumniIdsByConditions(myId, null, List.of(), pageable);
         if (orderedIds.isEmpty()) {
             return HomeResponse.AlumniSection.empty();
         }

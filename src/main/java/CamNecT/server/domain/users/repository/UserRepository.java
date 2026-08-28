@@ -19,6 +19,12 @@ public interface UserRepository extends JpaRepository<Users, Long> {
     Optional<Users> findByUserId(Long userId);
     Optional<Users> findByEmail(String email);
     Optional<Users> findByUsername(String username);
+    @Query("select u.userId from Users u where u.email = :email")
+    Optional<Long> findUserIdByEmail(@Param("email") String email);
+    @Query("select u.userId from Users u where u.username = :username")
+    Optional<Long> findUserIdByUsername(@Param("username") String username);
+    @Query("select u.status from Users u where u.userId = :userId")
+    Optional<UserStatus> findStatusByUserId(@Param("userId") Long userId);
     boolean existsByEmail(String email);
     boolean existsByUsername(String username);
     boolean existsByName(String name);
@@ -36,6 +42,16 @@ public interface UserRepository extends JpaRepository<Users, Long> {
     @Query("select u.name from Users u where u.userId = :userId")
     Optional<String> findNameByUserId(@Param("userId") Long userId);
 
-    @Query("select u.userId from Users u where u.status = :status order by u.userId asc")
-    Slice<Long> findUserIdsByStatus(@Param("status") UserStatus status, Pageable pageable);
+    @Query("""
+            select u.userId
+            from Users u
+            where u.status = :status
+              and u.userId > :lastSeenUserId
+            order by u.userId asc
+            """)
+    Slice<Long> findUserIdsByStatusAndUserIdGreaterThan(
+            @Param("status") UserStatus status,
+            @Param("lastSeenUserId") Long lastSeenUserId,
+            Pageable pageable
+    );
 }

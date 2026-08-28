@@ -11,6 +11,8 @@ public interface PostService {
 
     void delete(Long userId, Long postId);
 
+    void deleteForModeration(Long adminId, Long postId);
+
     ToggleLikeResponse toggleLike(Long userId, Long postId);
 
     PostDetailResponse getDetail(Long userId, Long postId);

@@ -20,7 +20,9 @@ import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.repository.UserProfileRepository;
 import CamNecT.server.domain.users.repository.UserRepository;
 import CamNecT.server.domain.users.repository.UserTagMapRepository;
+import CamNecT.server.global.common.auth.AccountAccessGuard;
 import CamNecT.server.global.common.exception.CustomException;
+import CamNecT.server.global.common.response.errorcode.bydomains.AuthErrorCode;
 import CamNecT.server.global.common.response.errorcode.bydomains.CoffeeChatErrorCode;
 import CamNecT.server.global.point.service.PointService;
 import CamNecT.server.global.storage.service.PublicUrlIssuer;
@@ -33,6 +35,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Optional;
@@ -59,6 +62,7 @@ class ChatServiceTest {
     @Mock ApplicationEventPublisher eventPublisher;
     @Mock ChatPresenceService presenceService;
     @Mock PointService pointService;
+    @Mock AccountAccessGuard accountAccessGuard;
 
     @InjectMocks ChatService chatService;
 
@@ -67,14 +71,16 @@ class ChatServiceTest {
         Users user = activeUser(1L);
         ChatRoom room = mock(ChatRoom.class);
         ChatRequest request = mock(ChatRequest.class);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(user);
         when(chatRoomRepository.findByUserIdWithDetailsForUpdate(99L, 1L))
                 .thenReturn(Optional.of(room));
         when(room.getRequest()).thenReturn(request);
 
         chatService.closeChatRoom(99L, 1L);
 
-        InOrder inOrder = inOrder(room, request, eventPublisher);
+        InOrder inOrder = inOrder(accountAccessGuard, chatRoomRepository, room, request, eventPublisher);
+        inOrder.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        inOrder.verify(chatRoomRepository).findByUserIdWithDetailsForUpdate(99L, 1L);
         inOrder.verify(room).closeRoom();
         inOrder.verify(request).closeRequest();
         ArgumentCaptor<ChatRoomClosedCommittedEvent> eventCaptor =
@@ -85,20 +91,27 @@ class ChatServiceTest {
     }
 
     @Test
-    void exitKeepsSeparateSemanticsAndDoesNotPublishRoomClosedEvent() {
+    void exitPublishesRoomClosedEventBecauseLeavingClosesTheRoom() {
         Users user = activeUser(1L);
         ChatRoom room = mock(ChatRoom.class);
         ChatRequest request = mock(ChatRequest.class);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(user);
         when(chatRoomRepository.findByUserIdWithDetailsForUpdate(99L, 1L))
                 .thenReturn(Optional.of(room));
         when(room.getRequest()).thenReturn(request);
 
         chatService.exitOfChatRoom(99L, 1L);
 
-        verify(room).leave(1L);
-        verify(request).closeRequest();
-        verifyNoInteractions(eventPublisher);
+        InOrder inOrder = inOrder(accountAccessGuard, chatRoomRepository, room, request, eventPublisher);
+        inOrder.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        inOrder.verify(chatRoomRepository).findByUserIdWithDetailsForUpdate(99L, 1L);
+        inOrder.verify(room).leave(1L);
+        inOrder.verify(request).closeRequest();
+        ArgumentCaptor<ChatRoomClosedCommittedEvent> eventCaptor =
+                ArgumentCaptor.forClass(ChatRoomClosedCommittedEvent.class);
+        inOrder.verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().closedEvent().type()).isEqualTo("ROOM_CLOSED");
+        assertThat(eventCaptor.getValue().closedEvent().roomId()).isEqualTo(99L);
     }
 
     @Test
@@ -127,13 +140,16 @@ class ChatServiceTest {
         when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
         when(room.getRequester()).thenReturn(requester);
         when(room.getReceiver()).thenReturn(receiver);
-        when(userRepository.findById(3L)).thenReturn(Optional.of(attacker));
+        when(accountAccessGuard.requireAccessibleForUpdate(3L)).thenReturn(attacker);
 
         CustomException ex = assertThrows(CustomException.class,
                 () -> chatService.sendMessage(3L, new ChatMessageSendRequestDto(
                         99L, "hello", "0e9e31aa-99e7-4c58-90d8-f939b56fd234")));
 
         assertThat(ex.getErrorCode()).isEqualTo(CoffeeChatErrorCode.CHATROOM_ACCESS_DENIED);
+        InOrder accessOrder = inOrder(accountAccessGuard, chatRoomRepository);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(3L);
+        accessOrder.verify(chatRoomRepository).findByIdForUpdate(99L);
         verify(chatRepository, never()).save(any(Chat.class));
         verifyNoInteractions(presenceService, eventPublisher);
     }
@@ -143,14 +159,18 @@ class ChatServiceTest {
         Users reader = activeUser(1L);
         ChatRoom room = mock(ChatRoom.class);
 
-        when(userRepository.findById(1L)).thenReturn(Optional.of(reader));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(reader);
         when(chatRoomRepository.findByUserIdWithDetails(99L, 1L)).thenReturn(Optional.of(room));
-        when(chatRoomRepository.existsAccessibleByUserId(99L, 1L)).thenReturn(true);
         when(chatRepository.findUnreadMessages(99L, 1L)).thenReturn(List.of());
         when(chatRepository.findTop1000ByRoomId(eq(99L), any())).thenReturn(List.of());
 
         assertDoesNotThrow(() -> chatService.getChatHistory(99L, 1L));
 
+        InOrder accessOrder = inOrder(accountAccessGuard, chatRoomRepository, chatRepository);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        accessOrder.verify(chatRoomRepository).findByUserIdWithDetails(99L, 1L);
+        accessOrder.verify(chatRepository).findUnreadMessages(99L, 1L);
+        verify(accountAccessGuard, times(1)).requireAccessibleForUpdate(1L);
         verify(chatRepository).findUnreadMessages(99L, 1L);
         verify(chatRepository, never()).findUnreadMessages(99L, 2L);
     }
@@ -160,7 +180,7 @@ class ChatServiceTest {
         Users receiver = activeUser(2L);
         ChatRequest request = mock(ChatRequest.class);
 
-        when(userRepository.findById(2L)).thenReturn(Optional.of(receiver));
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(receiver);
         when(chatRequestRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
         when(request.getReceiver()).thenReturn(receiver);
         when(request.getStatus()).thenReturn(ChatRequest.RequestStatus.ACCEPTED);
@@ -170,6 +190,12 @@ class ChatServiceTest {
         CustomException ex = assertThrows(CustomException.class,
                 () -> chatService.respondToRequest(10L, 2L, false));
         assertThat(ex.getErrorCode()).isEqualTo(CoffeeChatErrorCode.REQUEST_ALREADY_PROCESSED);
+
+        InOrder accessOrder = inOrder(accountAccessGuard, chatRequestRepository);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(2L);
+        accessOrder.verify(chatRequestRepository).findByIdForUpdate(10L);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(2L);
+        accessOrder.verify(chatRequestRepository).findByIdForUpdate(10L);
     }
 
     @Test
@@ -214,6 +240,7 @@ class ChatServiceTest {
         assertThat(list.chatRequestList().getFirst().recruitmentTitle())
                 .isEqualTo("삭제된 모집 공고입니다.");
         assertThat(list.chatRequestList().getFirst().recruitmentId()).isEqualTo(30L);
+        verify(accountAccessGuard, never()).requireAccessibleForUpdate(anyLong());
     }
 
     @Test
@@ -223,9 +250,8 @@ class ChatServiceTest {
         ChatRequest request = mock(ChatRequest.class);
         ChatRoom room = mock(ChatRoom.class);
 
-        when(userRepository.findById(1L)).thenReturn(Optional.of(me));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(me);
         when(chatRoomRepository.findByUserIdWithDetails(99L, 1L)).thenReturn(Optional.of(room));
-        when(chatRoomRepository.existsAccessibleByUserId(99L, 1L)).thenReturn(true);
         when(chatRepository.findUnreadMessages(99L, 1L)).thenReturn(List.of());
         when(chatRepository.findTop1000ByRoomId(eq(99L), any())).thenReturn(List.of());
         when(room.getId()).thenReturn(99L);
@@ -244,6 +270,8 @@ class ChatServiceTest {
 
         ChatRoomWithDetailDto result = chatService.getRoomWithDetails(99L, 1L);
 
+        verify(accountAccessGuard, times(1)).requireAccessibleForUpdate(1L);
+
         assertThat(result.getRecruitmentTitle()).isEqualTo("삭제된 모집 공고입니다.");
         assertThat(result.getRecruitmentId()).isEqualTo(30L);
     }
@@ -261,7 +289,7 @@ class ChatServiceTest {
         when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
         when(room.getRequester()).thenReturn(sender);
         when(room.getReceiver()).thenReturn(receiver);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(sender));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(sender);
         when(chatRepository.findByClientMessageId(99L, 1L, clientMessageId))
                 .thenReturn(Optional.of(existing));
         when(existing.getId()).thenReturn(501L);
@@ -297,7 +325,7 @@ class ChatServiceTest {
         when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
         when(room.getRequester()).thenReturn(sender);
         when(room.getReceiver()).thenReturn(receiver);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(sender));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(sender);
         when(chatRepository.findByClientMessageId(99L, 1L, clientMessageId))
                 .thenReturn(Optional.of(existing));
         when(existing.getContent()).thenReturn("first content");
@@ -323,7 +351,7 @@ class ChatServiceTest {
         when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
         when(room.getRequester()).thenReturn(sender);
         when(room.getReceiver()).thenReturn(receiver);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(sender));
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(sender);
         when(chatRepository.findByClientMessageId(99L, 1L, clientMessageId))
                 .thenReturn(Optional.empty());
         when(presenceService.isPresent(99L, 2L)).thenReturn(true);
@@ -338,7 +366,109 @@ class ChatServiceTest {
         assertThat(chatCaptor.getValue().getClientMessageId()).isEqualTo(clientMessageId);
         assertThat(ack.clientMessageId()).isEqualTo(clientMessageId);
         assertThat(ack.duplicate()).isFalse();
+        InOrder accessOrder = inOrder(accountAccessGuard, chatRoomRepository);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        accessOrder.verify(chatRoomRepository).findByIdForUpdate(99L);
         verify(eventPublisher).publishEvent(any(ChatMessageCommittedEvent.class));
+    }
+
+    @Test
+    void coffeeChatRequestLocksLowerReceiverBeforeRevalidatingHigherRequester() {
+        Users requester = activeUser(2L, "requester");
+        Users receiver = activeUser(1L, "receiver");
+        ChatRequest savedRequest = mock(ChatRequest.class);
+
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(receiver));
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(requester);
+        when(userProfileRepository.existsByUserIdAndOpenToCoffeeChatTrue(1L)).thenReturn(true);
+        when(tagRepository.findAllById(List.of())).thenReturn(List.of());
+        when(chatRequestRepository.save(any(ChatRequest.class))).thenReturn(savedRequest);
+        when(savedRequest.getId()).thenReturn(10L);
+
+        assertThat(chatService.sendCoffeeChatRequest(2L, 1L, List.of(), "안녕하세요"))
+                .isEqualTo(10L);
+
+        InOrder lockOrder = inOrder(userRepository, accountAccessGuard);
+        lockOrder.verify(userRepository).findByIdForUpdate(1L);
+        lockOrder.verify(accountAccessGuard).requireAccessibleForUpdate(2L);
+        verify(accountAccessGuard, times(1)).requireAccessibleForUpdate(2L);
+        verify(userRepository, never()).lockUserRow(anyLong());
+    }
+
+    @Test
+    void inaccessibleRequesterKeepsPriorityOverMissingLowerReceiver() {
+        CustomException denied = new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.empty());
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenThrow(denied);
+
+        CustomException actual = assertThrows(
+                CustomException.class,
+                () -> chatService.sendCoffeeChatRequest(2L, 1L, List.of(), "안녕하세요")
+        );
+
+        assertThat(actual).isSameAs(denied);
+        InOrder lockOrder = inOrder(userRepository, accountAccessGuard);
+        lockOrder.verify(userRepository).findByIdForUpdate(1L);
+        lockOrder.verify(accountAccessGuard).requireAccessibleForUpdate(2L);
+    }
+
+    @Test
+    void inaccessibleSenderIsRejectedBeforeTheChatRoomIsLocked() {
+        CustomException denied = new CustomException(AuthErrorCode.USER_WITHDRAWN);
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenThrow(denied);
+
+        CustomException actual = assertThrows(CustomException.class, () -> chatService.sendMessage(
+                1L,
+                new ChatMessageSendRequestDto(
+                        99L, "hello", "0e9e31aa-99e7-4c58-90d8-f939b56fd234")
+        ));
+
+        assertThat(actual).isSameAs(denied);
+        verifyNoInteractions(chatRoomRepository, chatRepository);
+    }
+
+    @Test
+    void rejectAllRevalidatesActorBeforeLoadingRequestsToChange() {
+        Users actor = activeUser(1L);
+        ChatRequest pending = mock(ChatRequest.class);
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(actor);
+        when(chatRequestRepository.findAllByReceiver_UserIdAndTypeAndStatus(
+                1L, ChatRequest.RequestType.COFFEE_CHAT, ChatRequest.RequestStatus.WAITING
+        )).thenReturn(List.of(pending));
+
+        chatService.rejectAllCoffeeChatRequests(1L, ChatRequest.RequestType.COFFEE_CHAT);
+
+        InOrder accessOrder = inOrder(accountAccessGuard, chatRequestRepository, pending);
+        accessOrder.verify(accountAccessGuard).requireAccessibleForUpdate(1L);
+        accessOrder.verify(chatRequestRepository).findAllByReceiver_UserIdAndTypeAndStatus(
+                1L, ChatRequest.RequestType.COFFEE_CHAT, ChatRequest.RequestStatus.WAITING);
+        accessOrder.verify(pending).reject();
+    }
+
+    @Test
+    void roomConstraintFailureIsPropagatedWithoutRollbackOnlyRecoveryQuery() {
+        Users requester = activeUser(1L);
+        Users receiver = activeUser(2L);
+        ChatRequest request = mock(ChatRequest.class);
+        DataIntegrityViolationException failure = new DataIntegrityViolationException("duplicate request room");
+
+        when(accountAccessGuard.requireAccessibleForUpdate(2L)).thenReturn(receiver);
+        when(chatRequestRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(request));
+        when(request.getId()).thenReturn(10L);
+        when(request.getRequester()).thenReturn(requester);
+        when(request.getReceiver()).thenReturn(receiver);
+        when(request.getStatus()).thenReturn(ChatRequest.RequestStatus.WAITING);
+        when(chatRoomRepository.findByRequest_Id(10L)).thenReturn(Optional.empty());
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenThrow(failure);
+
+        DataIntegrityViolationException actual = assertThrows(
+                DataIntegrityViolationException.class,
+                () -> chatService.respondToRequest(10L, 2L, true)
+        );
+
+        assertThat(actual).isSameAs(failure);
+        verify(chatRoomRepository, times(1)).findByRequest_Id(10L);
+        verifyNoInteractions(pointService);
     }
 
     private Users activeUser(Long userId) {
