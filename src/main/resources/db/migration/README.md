@@ -9,6 +9,7 @@ This service onboards an existing, Hibernate-managed schema to Flyway while also
 - All schema changes after this rollout must be added as immutable, sequential migrations.
 - `V2__Report_multiple_evidence.sql` adds the report-to-evidence 1:N table, backfills each legacy evidence key, and removes the obsolete single-evidence column.
 - `V6__Withdrawn_user_relationship_cleanup.sql` removes stale tag/follow relationships for already-withdrawn users and indexes inbound follow lookups.
+- `V12__Add_campus_to_education.sql` adds an optional legacy-compatible campus reference to education and enforces that the selected campus belongs to the stored institution.
 - Local and test H2 profiles disable Flyway because their disposable schema is created from JPA entities; the migration SQL targets MySQL.
 
 Do not edit an already deployed migration. Add a new sequential migration instead.

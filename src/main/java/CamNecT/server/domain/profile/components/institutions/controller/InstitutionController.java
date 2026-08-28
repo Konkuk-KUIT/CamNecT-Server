@@ -32,7 +32,7 @@ public class InstitutionController {
 
     @Operation(
             summary = "대학 검색",
-            description = "키워드로 대학을 검색합니다. 키워드가 없거나 공백일 경우 빈 리스트를 반환합니다."
+            description = "키워드로 대학을 검색하고, 각 대학의 활성 캠퍼스 목록과 캠퍼스 ID를 함께 반환합니다. 키워드가 없거나 공백일 경우 빈 리스트를 반환합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
@@ -53,7 +53,7 @@ public class InstitutionController {
 
     @Operation(
             summary = "대학 단건 조회",
-            description = "ID로 특정 대학의 상세 정보를 조회합니다."
+            description = "ID로 특정 대학의 상세 정보와 활성 캠퍼스 목록을 조회합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),

@@ -5,7 +5,9 @@ import CamNecT.server.domain.profile.components.education.dto.request.EducationR
 import CamNecT.server.domain.profile.components.education.model.Education;
 import CamNecT.server.domain.profile.components.education.model.EducationStatus;
 import CamNecT.server.domain.profile.components.education.repository.EducationRepository;
+import CamNecT.server.domain.profile.components.institutions.model.Campus;
 import CamNecT.server.domain.profile.components.institutions.model.Institutions;
+import CamNecT.server.domain.profile.components.institutions.repository.CampusRepository;
 import CamNecT.server.domain.profile.components.institutions.repository.InstitutionRepository;
 import CamNecT.server.domain.users.model.UserStatus;
 import CamNecT.server.domain.users.model.Users;
@@ -27,6 +29,7 @@ class EducationServiceLockingTest {
 
     @Mock EducationRepository educationRepository;
     @Mock InstitutionRepository institutionRepository;
+    @Mock CampusRepository campusRepository;
     @Mock ProfileComponentAccessGuard accessGuard;
 
     @InjectMocks EducationService service;
@@ -35,6 +38,7 @@ class EducationServiceLockingTest {
     void everyMutationUsesTheSameUserLockAsWithdrawal() {
         Users owner = Users.builder().userId(1L).status(UserStatus.ACTIVE).build();
         Institutions institution = org.mockito.Mockito.mock(Institutions.class);
+        Campus campus = org.mockito.Mockito.mock(Campus.class);
         Education education = Education.builder()
                 .educationId(10L)
                 .user(owner)
@@ -43,10 +47,13 @@ class EducationServiceLockingTest {
                 .status(EducationStatus.ATTENDING)
                 .build();
         EducationRequest request = new EducationRequest(
-                20L, LocalDate.of(2025, 1, 1), null,
+                20L, 30L, LocalDate.of(2025, 1, 1), null,
                 EducationStatus.ATTENDING, null);
         when(accessGuard.requireAuthenticatedUserForUpdate(1L)).thenReturn(owner);
         when(institutionRepository.findById(20L)).thenReturn(Optional.of(institution));
+        when(institution.getInstitutionId()).thenReturn(20L);
+        when(campusRepository.findActiveByIdAndInstitutionId(30L, 20L))
+                .thenReturn(Optional.of(campus));
         when(educationRepository.findById(10L)).thenReturn(Optional.of(education));
 
         service.addEducation(1L, request);

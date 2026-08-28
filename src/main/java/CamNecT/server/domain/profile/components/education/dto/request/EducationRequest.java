@@ -11,6 +11,7 @@ import java.time.LocalDate;
 
 public record EducationRequest(
         @NotNull @Positive Long institutionId,
+        @NotNull @Positive Long campusId,
 //        Long majorId,
 //        String degree,
         @NotNull LocalDate startDate,

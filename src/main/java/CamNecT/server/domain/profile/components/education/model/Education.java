@@ -1,6 +1,7 @@
 package CamNecT.server.domain.profile.components.education.model;
 
 import CamNecT.server.domain.users.model.Users;
+import CamNecT.server.domain.profile.components.institutions.model.Campus;
 import CamNecT.server.domain.profile.components.institutions.model.Institutions;
 import CamNecT.server.domain.profile.components.majors.model.Majors;
 import jakarta.persistence.*;
@@ -31,6 +32,10 @@ public class Education {
     private Institutions institution;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "campus_id")
+    private Campus campus;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "major_id")
     private Majors major;
 
@@ -50,10 +55,11 @@ public class Education {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    public void updateEducation(Institutions institution,
+    public void updateEducation(Institutions institution, Campus campus,
                                 LocalDate startDate, LocalDate endDate,
                                 EducationStatus status, String description) {
         this.institution = institution;
+        this.campus = campus;
 //        this.major = major;
 //        this.degree = degree;
         this.startDate = startDate;

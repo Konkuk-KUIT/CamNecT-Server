@@ -33,6 +33,7 @@ public enum UserErrorCode implements BaseErrorCode {
     EDUCATION_NOT_FOUND(HttpStatus.NOT_FOUND, 44406, "해당 학력 정보를 찾을 수 없습니다."),
     INSTITUTION_NOT_FOUND(HttpStatus.NOT_FOUND, 44407, "해당 학교 정보를 찾을 수 없습니다."),
     MAJOR_NOT_FOUND(HttpStatus.NOT_FOUND, 44408, "해당 전공 정보를 찾을 수 없습니다."),
+    CAMPUS_NOT_FOUND(HttpStatus.NOT_FOUND, 44409, "해당 학교의 활성 캠퍼스 정보를 찾을 수 없습니다."),
     PORTFOLIO_NOT_FOUND(HttpStatus.NOT_FOUND, 44410, "해당 포트폴리오가 없습니다."),
     FOLLOW_NOT_FOUND(HttpStatus.NOT_FOUND, 44411, "팔로우 관계를 찾을 수 없습니다."),
   
