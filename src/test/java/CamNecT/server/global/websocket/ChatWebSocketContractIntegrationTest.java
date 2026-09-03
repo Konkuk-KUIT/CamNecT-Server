@@ -61,7 +61,7 @@ class ChatWebSocketContractIntegrationTest {
     @Autowired PlatformTransactionManager transactionManager;
 
     @Test
-    void websocketSendReturnsAckBroadcastsOnceAndRoutesValidationError() throws Exception {
+    void websocketSendReturnsAckAndClosedRoomRetryKeepsIdempotentContract() throws Exception {
         Fixture fixture = createFixture();
         String sessionId = UUID.randomUUID().toString();
         String token = jwtUtil.generateAccessToken(fixture.senderId(), UserRole.USER, sessionId);
@@ -109,6 +109,12 @@ class ChatWebSocketContractIntegrationTest {
             assertThat(broadcast.getMessageId()).isEqualTo(firstAck.messageId());
             assertThat(broadcast.getClientMessageId()).isEqualTo(clientMessageId);
 
+            new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                    chatRoomRepository.findByIdForUpdate(fixture.roomId())
+                            .orElseThrow()
+                            .closeRoom()
+            );
+
             session.send("/pub/chat/message", request);
 
             ChatMessageAckResponseDto duplicateAck = ackQueue.poll(MESSAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -118,6 +124,21 @@ class ChatWebSocketContractIntegrationTest {
             assertThat(roomQueue.poll(500, TimeUnit.MILLISECONDS)).isNull();
             assertThat(chatRepository.countByRoom_IdAndSender_UserIdAndClientMessageId(
                     fixture.roomId(), fixture.senderId(), clientMessageId)).isEqualTo(1L);
+
+            String unseenClientMessageId = UUID.randomUUID().toString();
+            session.send("/pub/chat/message",
+                    new ChatMessageSendRequestDto(fixture.roomId(), "new message after close", unseenClientMessageId));
+
+            ChatSocketErrorResponse closedError =
+                    errorQueue.poll(MESSAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(closedError).isNotNull();
+            assertThat(closedError.status()).isEqualTo(400);
+            assertThat(closedError.code()).isEqualTo(48005);
+            assertThat(closedError.operation()).isEqualTo("SEND_MESSAGE");
+            assertThat(closedError.roomId()).isEqualTo(fixture.roomId());
+            assertThat(closedError.clientMessageId()).isEqualTo(unseenClientMessageId);
+            assertThat(chatRepository.countByRoom_IdAndSender_UserIdAndClientMessageId(
+                    fixture.roomId(), fixture.senderId(), unseenClientMessageId)).isZero();
 
             String invalidClientMessageId = UUID.randomUUID().toString();
             session.send("/pub/chat/message",

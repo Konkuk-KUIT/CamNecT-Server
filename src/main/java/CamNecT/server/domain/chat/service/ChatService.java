@@ -522,11 +522,6 @@ public class ChatService {
         ChatRoom room = chatRoomRepository.findByIdForUpdate(request.roomId())
                 .orElseThrow(() -> new CustomException(CoffeeChatErrorCode.CHATROOM_NOT_FOUND));
 
-        if (room.getStatus() == ChatRoom.RoomStatus.CLOSE) {
-            log.error("❌ [CHAT-ERROR] 이미 종료된 채팅방입니다. RoomID: {}", request.roomId());
-            throw new CustomException(CoffeeChatErrorCode.COFFEE_CHAT_CLOSED);
-        }
-
         //보내는 사람과 받는 사람 분류
         boolean isRequester = Objects.equals(room.getRequester().getUserId(), sender.getUserId());
         boolean isReceiver = Objects.equals(room.getReceiver().getUserId(), sender.getUserId());
@@ -551,6 +546,11 @@ public class ChatService {
             log.info("[CHAT-SEND] 멱등 재요청 감지. roomId={}, senderId={}, clientMessageId={}, messageId={}",
                     room.getId(), sender.getUserId(), clientMessageId, existing.getId());
             return ChatMessageAckResponseDto.from(ChatMessageResponseDto.toDto(existing), true);
+        }
+
+        if (room.getStatus() == ChatRoom.RoomStatus.CLOSE) {
+            log.error("❌ [CHAT-ERROR] 이미 종료된 채팅방입니다. RoomID: {}", request.roomId());
+            throw new CustomException(CoffeeChatErrorCode.COFFEE_CHAT_CLOSED);
         }
 
         boolean receiverPresent = presenceService.isPresent(room.getId(), receiver.getUserId());
