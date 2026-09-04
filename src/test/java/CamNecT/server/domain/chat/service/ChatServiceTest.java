@@ -137,7 +137,6 @@ class ChatServiceTest {
         ChatRoom room = mock(ChatRoom.class);
 
         when(chatRoomRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(room));
-        when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
         when(room.getRequester()).thenReturn(requester);
         when(room.getReceiver()).thenReturn(receiver);
         when(accountAccessGuard.requireAccessibleForUpdate(3L)).thenReturn(attacker);
@@ -286,7 +285,6 @@ class ChatServiceTest {
 
         when(chatRoomRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(room));
         when(room.getId()).thenReturn(99L);
-        when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
         when(room.getRequester()).thenReturn(sender);
         when(room.getReceiver()).thenReturn(receiver);
         when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(sender);
@@ -313,7 +311,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void reusingClientMessageIdForDifferentContentIsRejected() {
+    void duplicateClientMessageIdReturnsExistingAckEvenAfterRoomClosed() {
         String clientMessageId = "0e9e31aa-99e7-4c58-90d8-f939b56fd234";
         Users sender = activeUser(1L, "sender");
         Users receiver = activeUser(2L, "receiver");
@@ -322,7 +320,71 @@ class ChatServiceTest {
 
         when(chatRoomRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(room));
         when(room.getId()).thenReturn(99L);
-        when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.OPEN);
+        lenient().when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.CLOSE);
+        when(room.getRequester()).thenReturn(sender);
+        when(room.getReceiver()).thenReturn(receiver);
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(sender);
+        when(chatRepository.findByClientMessageId(99L, 1L, clientMessageId))
+                .thenReturn(Optional.of(existing));
+        when(existing.getId()).thenReturn(501L);
+        when(existing.getRoom()).thenReturn(room);
+        when(existing.getSender()).thenReturn(sender);
+        when(existing.getReceiver()).thenReturn(receiver);
+        when(existing.getContent()).thenReturn("hello");
+        when(existing.getClientMessageId()).thenReturn(clientMessageId);
+        when(existing.getCreatedAt()).thenReturn(java.time.LocalDateTime.of(2026, 7, 15, 10, 0));
+
+        ChatMessageAckResponseDto ack = chatService.sendMessage(
+                1L,
+                new ChatMessageSendRequestDto(99L, "hello", clientMessageId)
+        );
+
+        assertThat(ack.messageId()).isEqualTo(501L);
+        assertThat(ack.clientMessageId()).isEqualTo(clientMessageId);
+        assertThat(ack.duplicate()).isTrue();
+        verify(room, never()).getStatus();
+        verify(chatRepository, never()).save(any(Chat.class));
+        verifyNoInteractions(presenceService, eventPublisher);
+    }
+
+    @Test
+    void closedRoomRejectsUnseenClientMessageIdAfterDuplicateLookup() {
+        String clientMessageId = "0e9e31aa-99e7-4c58-90d8-f939b56fd234";
+        Users sender = activeUser(1L, "sender");
+        Users receiver = activeUser(2L, "receiver");
+        ChatRoom room = mock(ChatRoom.class);
+
+        when(chatRoomRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(room));
+        when(room.getId()).thenReturn(99L);
+        when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.CLOSE);
+        when(room.getRequester()).thenReturn(sender);
+        when(room.getReceiver()).thenReturn(receiver);
+        when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(sender);
+        when(chatRepository.findByClientMessageId(99L, 1L, clientMessageId))
+                .thenReturn(Optional.empty());
+
+        CustomException exception = assertThrows(CustomException.class, () -> chatService.sendMessage(
+                1L,
+                new ChatMessageSendRequestDto(99L, "hello", clientMessageId)
+        ));
+
+        assertThat(exception.getErrorCode()).isEqualTo(CoffeeChatErrorCode.COFFEE_CHAT_CLOSED);
+        verify(chatRepository).findByClientMessageId(99L, 1L, clientMessageId);
+        verify(chatRepository, never()).save(any(Chat.class));
+        verifyNoInteractions(presenceService, eventPublisher);
+    }
+
+    @Test
+    void reusingClientMessageIdForDifferentContentIsRejectedEvenAfterRoomClosed() {
+        String clientMessageId = "0e9e31aa-99e7-4c58-90d8-f939b56fd234";
+        Users sender = activeUser(1L, "sender");
+        Users receiver = activeUser(2L, "receiver");
+        ChatRoom room = mock(ChatRoom.class);
+        Chat existing = mock(Chat.class);
+
+        when(chatRoomRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(room));
+        when(room.getId()).thenReturn(99L);
+        lenient().when(room.getStatus()).thenReturn(ChatRoom.RoomStatus.CLOSE);
         when(room.getRequester()).thenReturn(sender);
         when(room.getReceiver()).thenReturn(receiver);
         when(accountAccessGuard.requireAccessibleForUpdate(1L)).thenReturn(sender);
@@ -336,6 +398,7 @@ class ChatServiceTest {
         ));
 
         assertThat(ex.getErrorCode()).isEqualTo(CoffeeChatErrorCode.IDEMPOTENCY_KEY_REUSED);
+        verify(room, never()).getStatus();
         verify(chatRepository, never()).save(any(Chat.class));
     }
 
