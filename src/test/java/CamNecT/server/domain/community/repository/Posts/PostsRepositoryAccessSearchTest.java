@@ -4,6 +4,7 @@ import CamNecT.server.domain.community.model.Boards;
 import CamNecT.server.domain.community.model.Comments.AcceptedComments;
 import CamNecT.server.domain.community.model.Comments.Comments;
 import CamNecT.server.domain.community.model.Posts.PostAccess;
+import CamNecT.server.domain.community.model.Posts.PostTags;
 import CamNecT.server.domain.community.model.Posts.Posts;
 import CamNecT.server.domain.community.model.enums.BoardCode;
 import CamNecT.server.domain.community.model.enums.PostAccessType;
@@ -11,6 +12,8 @@ import CamNecT.server.domain.community.model.enums.PostStatus;
 import CamNecT.server.domain.users.model.Users;
 import CamNecT.server.domain.users.model.UserRole;
 import CamNecT.server.global.common.config.QuerydslConfig;
+import CamNecT.server.global.tag.model.Tag;
+import CamNecT.server.global.tag.model.TagCategory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -64,6 +67,47 @@ class PostsRepositoryAccessSearchTest {
         assertThat(administratorResult).containsExactlyInAnyOrder(locked.getId(), waiting.getId(), freeInfo.getId());
     }
 
+    @Test
+    void multipleTagFilterMatchesPostsHavingAnySelectedTag() {
+        Users owner = persistUser("tag-owner");
+        Boards info = entityManager.persist(Boards.of(BoardCode.INFO, "정보"));
+        TagCategory category = entityManager.persist(TagCategory.builder()
+                .code("community-filter")
+                .name("커뮤니티 필터")
+                .build());
+        Tag backend = entityManager.persist(Tag.builder().name("백엔드").category(category).build());
+        Tag frontend = entityManager.persist(Tag.builder().name("프론트엔드").category(category).build());
+        Tag design = entityManager.persist(Tag.builder().name("디자인").category(category).build());
+
+        Posts backendPost = persistPost(info, owner, "백엔드 글", "본문", PostAccessType.FREE);
+        Posts frontendPost = persistPost(info, owner, "프론트 글", "본문", PostAccessType.FREE);
+        Posts designPost = persistPost(info, owner, "디자인 글", "본문", PostAccessType.FREE);
+        entityManager.persist(PostTags.link(backendPost, backend));
+        entityManager.persist(PostTags.link(frontendPost, frontend));
+        entityManager.persist(PostTags.link(designPost, design));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<Long> result = postsRepository.findFeedLatestWithFilter(
+                        PostStatus.PUBLISHED,
+                        null,
+                        List.of(backend.getId(), frontend.getId()),
+                        true,
+                        null,
+                        owner.getUserId(),
+                        false,
+                        PostAccessType.POINT_REQUIRED,
+                        BoardCode.QUESTION,
+                        null,
+                        PageRequest.of(0, 20)
+                ).getContent().stream()
+                .map(Posts::getId)
+                .toList();
+
+        assertThat(result).containsExactlyInAnyOrder(backendPost.getId(), frontendPost.getId());
+        assertThat(result).doesNotContain(designPost.getId());
+    }
+
     private List<Long> searchBody(Long viewerUserId) {
         return searchBody(viewerUserId, false);
     }
@@ -72,7 +116,8 @@ class PostsRepositoryAccessSearchTest {
         return postsRepository.findFeedLatestWithFilter(
                         PostStatus.PUBLISHED,
                         null,
-                        null,
+                        List.of(-1L),
+                        false,
                         "needle",
                         viewerUserId,
                         adminRead,

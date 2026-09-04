@@ -19,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
+import static CamNecT.server.domain.community.dto.request.CommunityRequestLimits.MAX_TAG_FILTERS;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -29,33 +31,34 @@ public class PostQueryServiceImpl implements PostQueryService {
     private final PostSummaryAssembler postSummaryAssembler;
 
     @Override
-    public PostListResponse getPosts(Long userId, Tab tab, Sort sort, Long tagId, String keyword,
+    public PostListResponse getPosts(Long userId, Tab tab, Sort sort, List<Long> tagIds, String keyword,
                                      Long cursorId, Long cursorValue, int size) {
         int limit = Math.clamp(size, 1, 50);
 
         BoardCode code = toBoardCode(tab);
         String kw = normalizeKeyword(keyword);
+        TagFilter tagFilter = normalizeTagFilter(tagIds);
         validateCursor(sort, cursorId, cursorValue);
         boolean adminRead = isAdmin(userId);
 
         Slice<Posts> slice = switch (sort) {
             case LATEST -> postsRepository.findFeedLatestWithFilter(
-                    PostStatus.PUBLISHED, code, tagId, kw,
+                    PostStatus.PUBLISHED, code, tagFilter.tagIds(), tagFilter.enabled(), kw,
                     userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorId, PageRequest.of(0, limit)
             );
             case RECOMMENDED -> postsRepository.findFeedRecommended(
-                    PostStatus.PUBLISHED, code, tagId, kw,
+                    PostStatus.PUBLISHED, code, tagFilter.tagIds(), tagFilter.enabled(), kw,
                     userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case LIKE -> postsRepository.findFeedLikeDesc(
-                    PostStatus.PUBLISHED, code, tagId, kw,
+                    PostStatus.PUBLISHED, code, tagFilter.tagIds(), tagFilter.enabled(), kw,
                     userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorValue, cursorId, PageRequest.of(0, limit)
             );
             case BOOKMARK -> postsRepository.findFeedBookmarkDesc(
-                    PostStatus.PUBLISHED, code, tagId, kw,
+                    PostStatus.PUBLISHED, code, tagFilter.tagIds(), tagFilter.enabled(), kw,
                     userId, adminRead, PostAccessType.POINT_REQUIRED, BoardCode.QUESTION,
                     cursorValue, cursorId, PageRequest.of(0, limit)
             );
@@ -73,7 +76,8 @@ public class PostQueryServiceImpl implements PostQueryService {
         Slice<Posts> slice = postsRepository.findFeedRecommended(
                 PostStatus.PUBLISHED,
                 null,          // board filter 없음
-                tagId,
+                List.of(tagId),
+                true,
                 null,          // keyword 없음
                 userId,
                 adminRead,
@@ -127,6 +131,21 @@ public class PostQueryServiceImpl implements PostQueryService {
                 .replace("_", "!_");
     }
 
+    private static TagFilter normalizeTagFilter(List<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return new TagFilter(false, List.of(-1L));
+        }
+        if (tagIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new CustomException(CommunityErrorCode.INVALID_TAG_IDS);
+        }
+
+        List<Long> normalized = tagIds.stream().distinct().toList();
+        if (normalized.size() > MAX_TAG_FILTERS) {
+            throw new CustomException(CommunityErrorCode.INVALID_TAG_IDS);
+        }
+        return new TagFilter(true, normalized);
+    }
+
     private static void validateCursor(Sort sort, Long cursorId, Long cursorValue) {
         if (cursorId != null && cursorId <= 0) {
             throw new CustomException(CommunityErrorCode.INVALID_CURSOR);
@@ -157,5 +176,8 @@ public class PostQueryServiceImpl implements PostQueryService {
 
     private boolean isAdmin(Long userId) {
         return userId != null && userRepository.existsByUserIdAndRole(userId, UserRole.ADMIN);
+    }
+
+    private record TagFilter(boolean enabled, List<Long> tagIds) {
     }
 }
