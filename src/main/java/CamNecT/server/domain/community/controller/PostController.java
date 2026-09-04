@@ -15,6 +15,8 @@ import CamNecT.server.global.storage.dto.request.PresignUploadBatchRequest;
 import CamNecT.server.global.storage.dto.response.PresignDownloadResponse;
 import CamNecT.server.global.storage.dto.response.PresignUploadBatchResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -30,6 +32,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import static CamNecT.server.domain.community.dto.request.CommunityRequestLimits.MAX_TAG_FILTERS;
 import static CamNecT.server.domain.community.dto.request.CommunityRequestLimits.MAX_SEARCH_KEYWORD_LENGTH;
 
 @Tag(name = "Community Post", description = "커뮤니티 게시글 관련 API (CRUD, 좋아요, 북마크, 채택, 구매)")
@@ -67,11 +73,11 @@ public class PostController {
     //리스트: /api/community/posts
     @Operation(
             summary = "게시글 목록 조회 (No-Offset 페이징)",
-            description = "탭(Tab), 정렬(Sort), 태그, 키워드 검색을 지원하는 게시글 목록 조회 API입니다. 커서 기반 페이징(cursorId, cursorValue)을 사용합니다."
+            description = "탭(Tab), 정렬(Sort), 태그, 키워드 검색을 지원하는 게시글 목록 조회 API입니다. tagIds는 최대 3개까지 전달할 수 있으며 하나라도 일치하는 게시글을 조회합니다. 기존 tagId도 계속 지원합니다. 커서 기반 페이징(cursorId, cursorValue)을 사용합니다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "요청 성공", useReturnTypeSchema = true),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 탭·정렬·쿼리 형식 / 43040 유효하지 않은 커서 / 43041 유효하지 않은 검색어", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "40000 잘못된 탭·정렬·쿼리·태그 필터 형식 / 43040 유효하지 않은 커서 / 43041 유효하지 않은 검색어 / 43060 유효하지 않거나 3개를 초과한 태그", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "43510 게시글 통계 누락 / 50000 내부 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
@@ -80,7 +86,13 @@ public class PostController {
             @UserId Long userId,
             @RequestParam(defaultValue = "ALL") Tab tab,
             @RequestParam(defaultValue = "RECOMMENDED") Sort sort,
+            @Parameter(description = "하위 호환용 단일 태그 ID. 신규 요청은 tagIds 사용을 권장합니다.", deprecated = true)
             @RequestParam(required = false) @Positive Long tagId,
+            @Parameter(
+                    description = "OR 조건으로 조회할 태그 ID 목록. 같은 이름의 쿼리 파라미터를 반복하며 최대 3개까지 전달합니다.",
+                    array = @ArraySchema(maxItems = MAX_TAG_FILTERS, schema = @Schema(type = "integer", format = "int64", minimum = "1"))
+            )
+            @RequestParam(required = false) @Size(max = MAX_TAG_FILTERS) List<@Positive Long> tagIds,
             @RequestParam(required = false)
             @Size(max = MAX_SEARCH_KEYWORD_LENGTH)
             @Pattern(regexp = "^[^\\p{Cc}]*$", message = "검색어에 제어문자를 사용할 수 없습니다.")
@@ -89,7 +101,12 @@ public class PostController {
             @RequestParam(required = false) @PositiveOrZero Long cursorValue,
             @RequestParam(defaultValue = "20") @Min(1) @Max(50) int size
     ) {
-        return ApiResponse.success(postQueryService.getPosts(userId, tab, sort, tagId, keyword, cursorId, cursorValue, size));
+        List<Long> mergedTagIds = new ArrayList<>();
+        if (tagId != null) mergedTagIds.add(tagId);
+        if (tagIds != null) mergedTagIds.addAll(tagIds);
+        return ApiResponse.success(postQueryService.getPosts(
+                userId, tab, sort, mergedTagIds, keyword, cursorId, cursorValue, size
+        ));
     }
 
     @Operation(summary = "게시글 수정", description = "본인이 작성한 게시글의 내용을 수정합니다.")

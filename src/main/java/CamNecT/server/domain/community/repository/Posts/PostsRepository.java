@@ -13,6 +13,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface PostsRepository extends JpaRepository<Posts, Long> {
@@ -51,16 +52,17 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
                                                  and viewerAnswer.comment.userId = :viewerUserId)
                                     or exists (select 1 from PostAccess pa
                                                where pa.post = p and pa.user.userId = :viewerUserId))))
-          and (:tagId is null or exists (
+          and (:filterByTags = false or exists (
                 select 1 from PostTags pt
-                where pt.post = p and pt.tag.id = :tagId
+                where pt.post = p and pt.tag.id in :tagIds
           ))
         order by p.id desc
     """)
     Slice<Posts> findFeedLatestWithFilter(
             @Param("status") PostStatus status,
             @Param("code") BoardCode code,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") List<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
             @Param("adminRead") boolean adminRead,
@@ -112,9 +114,9 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
                                              and viewerAnswer.comment.userId = :viewerUserId)
                                 or exists (select 1 from PostAccess pa
                                            where pa.post = p and pa.user.userId = :viewerUserId))))
-      and (:tagId is null or exists (
+      and (:filterByTags = false or exists (
             select 1 from PostTags pt
-            where pt.post = p and pt.tag.id = :tagId
+            where pt.post = p and pt.tag.id in :tagIds
       ))
       and (
             :cursorValue is null
@@ -126,7 +128,8 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     Slice<Posts> findFeedRecommended(
             @Param("status") PostStatus status,
             @Param("code") BoardCode code,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") List<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
             @Param("adminRead") boolean adminRead,
@@ -156,9 +159,9 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
                                              and viewerAnswer.comment.userId = :viewerUserId)
                                 or exists (select 1 from PostAccess pa
                                            where pa.post = p and pa.user.userId = :viewerUserId))))
-      and (:tagId is null or exists (
+      and (:filterByTags = false or exists (
             select 1 from PostTags pt
-            where pt.post = p and pt.tag.id = :tagId
+            where pt.post = p and pt.tag.id in :tagIds
       ))
       and (
             :cursorValue is null
@@ -170,7 +173,8 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     Slice<Posts> findFeedLikeDesc(
             @Param("status") PostStatus status,
             @Param("code") BoardCode code,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") List<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
             @Param("adminRead") boolean adminRead,
@@ -199,9 +203,9 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
                                              and viewerAnswer.comment.userId = :viewerUserId)
                                 or exists (select 1 from PostAccess pa
                                            where pa.post = p and pa.user.userId = :viewerUserId))))
-      and (:tagId is null or exists (
+      and (:filterByTags = false or exists (
             select 1 from PostTags pt
-            where pt.post = p and pt.tag.id = :tagId
+            where pt.post = p and pt.tag.id in :tagIds
       ))
       and (
             :cursorValue is null
@@ -213,7 +217,8 @@ public interface PostsRepository extends JpaRepository<Posts, Long> {
     Slice<Posts> findFeedBookmarkDesc(
             @Param("status") PostStatus status,
             @Param("code") BoardCode code,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") List<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("viewerUserId") Long viewerUserId,
             @Param("adminRead") boolean adminRead,
