@@ -160,7 +160,7 @@ public class ProfileController {
         return ApiResponse.success(null);
     }
 
-    @Operation(summary = "마이페이지 환경설정 조회", description = "본인의 이름, 프로필 사진, 전화번호, 이메일을 반환합니다.")
+    @Operation(summary = "마이페이지 환경설정 조회", description = "본인의 이름, 프로필 사진, 이메일을 반환합니다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "처리 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "40100 유효하지 않거나 만료된 JWT / 41103 인증 헤더 누락·형식 오류 / 41104 토큰 타입 누락 / 41106 허용되지 않은 토큰 타입", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

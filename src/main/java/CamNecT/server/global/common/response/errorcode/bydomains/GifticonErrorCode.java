@@ -12,6 +12,7 @@ public enum GifticonErrorCode implements BaseErrorCode {
     // 470xx - 요청/검증
     PRODUCT_INACTIVE(HttpStatus.BAD_REQUEST, 47001, "판매 중인 상품이 아닙니다."),
     INVALID_QUANTITY(HttpStatus.BAD_REQUEST, 47002, "수량이 올바르지 않습니다."),
+    INVALID_RECIPIENT_EMAIL(HttpStatus.BAD_REQUEST, 47003, "기프티콘을 받을 유효한 이메일이 필요합니다."),
     // 474xx - 리소스 없음
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, 47401, "상품을 찾을 수 없습니다."),
 

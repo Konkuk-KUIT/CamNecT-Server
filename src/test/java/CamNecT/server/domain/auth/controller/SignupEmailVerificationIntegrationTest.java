@@ -84,7 +84,7 @@ class SignupEmailVerificationIntegrationTest {
     }
 
     @Test
-    void validCodeAtomicallyCreatesAdminPendingUserAndIncompleteProfile() throws Exception {
+    void signupWithoutPhoneAtomicallyCreatesAdminPendingUserAndIncompleteProfile() throws Exception {
         String suffix = suffix();
         String email = "verified-" + suffix + "@example.com";
         String username = "verified-" + suffix;
@@ -105,22 +105,22 @@ class SignupEmailVerificationIntegrationTest {
     }
 
     @Test
-    void duplicatePhoneReturnsConflictWithoutUnexpectedRollback() throws Exception {
+    void duplicateUsernameReturnsConflictWithoutUnexpectedRollback() throws Exception {
         String firstSuffix = suffix();
-        String duplicatePhone = "010" + suffix();
-        String firstEmail = "phone-first-" + firstSuffix + "@example.com";
+        String duplicateUsername = "duplicate-" + suffix();
+        String firstEmail = "first-" + firstSuffix + "@example.com";
         tokenRepository.saveAndFlush(EmailVerificationToken.issueForEmail(firstEmail, VALID_CODE, 30));
 
-        verifySignup(firstEmail, "phone-first-" + firstSuffix, VALID_CODE, duplicatePhone)
+        verifySignup(firstEmail, duplicateUsername, VALID_CODE)
                 .andExpect(status().isOk());
 
         String secondSuffix = suffix();
-        String secondEmail = "phone-second-" + secondSuffix + "@example.com";
+        String secondEmail = "second-" + secondSuffix + "@example.com";
         tokenRepository.saveAndFlush(EmailVerificationToken.issueForEmail(secondEmail, VALID_CODE, 30));
 
-        verifySignup(secondEmail, "phone-second-" + secondSuffix, VALID_CODE, duplicatePhone)
+        verifySignup(secondEmail, duplicateUsername, VALID_CODE)
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value(41903));
+                .andExpect(jsonPath("$.code").value(41902));
 
         assertThat(userRepository.findByEmail(secondEmail)).isEmpty();
     }
@@ -130,15 +130,6 @@ class SignupEmailVerificationIntegrationTest {
             String username,
             String code
     ) throws Exception {
-        return verifySignup(email, username, code, "010" + suffix());
-    }
-
-    private org.springframework.test.web.servlet.ResultActions verifySignup(
-            String email,
-            String username,
-            String code,
-            String phoneNum
-    ) throws Exception {
         return mockMvc.perform(post("/api/auth/signup/email/verify")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of(
@@ -147,7 +138,6 @@ class SignupEmailVerificationIntegrationTest {
                         "username", username,
                         "password", "password1",
                         "name", "signup user",
-                        "phoneNum", phoneNum,
                         "agreements", Map.of(
                                 "serviceTerms", true,
                                 "privacyTerms", true

@@ -12,5 +12,5 @@ public record AdminDocumentVerificationListItemResponse(
         LocalDateTime submittedAt,
         Long userId,
         String username,
-        String phoneNum
+        String email
 ) {}

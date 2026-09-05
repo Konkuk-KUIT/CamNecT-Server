@@ -69,7 +69,7 @@ public class AdminDocumentVerificationService {
 
             return new AdminDocumentVerificationListItemResponse(
                     s.getId(), s.getStatus(), s.getDocType(), s.getSubmittedAt(),
-                    u.getUserId(), u.getUsername(), u.getPhoneNum()
+                    u.getUserId(), u.getUsername(), u.getEmail()
             );
         });
     }
@@ -94,7 +94,7 @@ public class AdminDocumentVerificationService {
 
                 u.getUserId(),
                 u.getUsername(),
-                u.getPhoneNum(),
+                u.getEmail(),
                 u.getName(),
 
                 p != null ? p.getStudentNo() : null,

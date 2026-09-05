@@ -1,10 +1,13 @@
 package CamNecT.server.domain.gifticon.service;
 
 import CamNecT.server.domain.gifticon.model.GifticonPurchase;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -20,11 +23,39 @@ import java.util.List;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class GifticonExportFileService {
 
+    private static final String[] COLUMNS = {
+            "purchaseId", "requestedAt",
+            "userId", "buyerName", "buyerEmail",
+            "productId", "vendorProductCode", "brandName", "productName",
+            "unitPricePoints", "quantity", "totalPricePoints",
+            "recipientName", "recipientEmail", "deliveryStatus", "giftMessage"
+    };
+
+    private final GifticonEmailPolicy emailPolicy;
+
     public void ensureFile(Path filePath, List<GifticonPurchase> rows) throws IOException {
-        if (Files.isRegularFile(filePath)) return;
+        if (Files.isRegularFile(filePath) && hasCurrentSchema(filePath)) return;
         writeAtomically(filePath, rows);
+    }
+
+    // 재시도 대기 중인 구형 파일도 현재 이메일 형식으로 재생성한다.
+    private boolean hasCurrentSchema(Path filePath) {
+        try (Workbook workbook = WorkbookFactory.create(filePath.toFile())) {
+            Sheet sheet = workbook.getSheet("purchases");
+            Row header = sheet == null ? null : sheet.getRow(0);
+            if (header == null || header.getLastCellNum() != COLUMNS.length) return false;
+            for (int i = 0; i < COLUMNS.length; i++) {
+                if (header.getCell(i) == null || header.getCell(i).getCellType() != CellType.STRING
+                        || !COLUMNS[i].equals(header.getCell(i).getStringCellValue())) return false;
+            }
+            return true;
+        } catch (IOException | RuntimeException e) {
+            log.warn("[gifticon-export] rebuild unreadable file path={}", filePath);
+            return false;
+        }
     }
 
     public void writeAtomically(Path filePath, List<GifticonPurchase> rows) throws IOException {
@@ -84,16 +115,8 @@ public class GifticonExportFileService {
 
             int rowIndex = 0;
             Row header = sheet.createRow(rowIndex++);
-            String[] columns = {
-                    "purchaseId", "requestedAt",
-                    "userId", "buyerName", "buyerPhone", "buyerEmail",
-                    "productId", "vendorProductCode", "brandName", "productName",
-                    "unitPricePoints", "quantity", "totalPricePoints",
-                    "recipientName", "recipientPhone", "giftMessage"
-            };
-
-            for (int i = 0; i < columns.length; i++) {
-                header.createCell(i).setCellValue(columns[i]);
+            for (int i = 0; i < COLUMNS.length; i++) {
+                header.createCell(i).setCellValue(COLUMNS[i]);
             }
 
             for (GifticonPurchase purchase : rows) {
@@ -104,7 +127,6 @@ public class GifticonExportFileService {
                 columnIndex = writeCell(row, columnIndex, purchase.getRequestedAt());
                 columnIndex = writeCell(row, columnIndex, purchase.getUser().getUserId());
                 columnIndex = writeCell(row, columnIndex, purchase.getBuyerName());
-                columnIndex = writeCell(row, columnIndex, purchase.getBuyerPhone());
                 columnIndex = writeCell(row, columnIndex, purchase.getBuyerEmail());
                 columnIndex = writeCell(row, columnIndex, purchase.getProduct().getId());
                 columnIndex = writeCell(row, columnIndex, purchase.getProduct().getVendorProductCode());
@@ -114,11 +136,13 @@ public class GifticonExportFileService {
                 columnIndex = writeCell(row, columnIndex, purchase.getQuantity());
                 columnIndex = writeCell(row, columnIndex, purchase.getTotalPricePoints());
                 columnIndex = writeCell(row, columnIndex, purchase.getRecipientName());
-                columnIndex = writeCell(row, columnIndex, purchase.getRecipientPhone());
+                columnIndex = writeCell(row, columnIndex, purchase.getRecipientEmail());
+                columnIndex = writeCell(row, columnIndex,
+                        emailPolicy.isValid(purchase.getRecipientEmail()) ? "READY" : "EMAIL_REQUIRED");
                 writeCell(row, columnIndex, purchase.getGiftMessage());
             }
 
-            for (int i = 0; i < columns.length; i++) {
+            for (int i = 0; i < COLUMNS.length; i++) {
                 sheet.autoSizeColumn(i);
             }
 

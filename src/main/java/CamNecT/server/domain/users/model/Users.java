@@ -33,10 +33,6 @@ public class Users {
     @Column(name = "name", nullable = false, length = 100)
     private String name;
 
-    //일단 수집
-    @Column(name = "phone_num", length = 20, unique = true)
-    private String phoneNum;
-
     @Column(name = "email", unique = true)
     private String email;
 
@@ -77,13 +73,11 @@ public class Users {
             String name,
             String username,
             String email,
-            String phone,
             UserStatus status
     ) {
         this.name = name;
         this.username = username;
         this.email = email;
-        this.phoneNum = phone;
         this.status = status;
     }
 }

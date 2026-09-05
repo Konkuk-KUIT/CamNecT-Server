@@ -165,7 +165,6 @@ public class LoginService {
                 "탈퇴한 사용자",
                 "deleted_" + suffix,
                 null,
-                null,
                 UserStatus.WITHDRAWN
         );
         userRepository.save(user);

@@ -56,17 +56,15 @@ public class GifticonPurchase {
     @Column(name = "buyer_name", nullable = false, length = 100)
     private String buyerName;
 
-    @Column(name = "buyer_phone", length = 30)
-    private String buyerPhone;
-
-    @Column(name = "buyer_email", length = 200)
+    @Column(name = "buyer_email", length = 255)
     private String buyerEmail;
 
     @Column(name = "recipient_name", length = 100)
     private String recipientName;
 
-    @Column(name = "recipient_phone", length = 30)
-    private String recipientPhone;
+    // 기존 주문의 수신 이메일을 확인할 수 없으면 null로 유지한다.
+    @Column(name = "recipient_email", length = 255)
+    private String recipientEmail;
 
     @Column(name = "gift_message", length = 500)
     private String giftMessage;

@@ -37,13 +37,11 @@ public class SignupService {
         // 최종 유니크
         if (userRepository.existsByEmail(req.email())) throw new CustomException(AuthErrorCode.EMAIL_ALREADY_EXISTS);
         if (userRepository.existsByUsername(req.username())) throw new CustomException(AuthErrorCode.USERNAME_ALREADY_EXISTS);
-        if (userRepository.existsByPhoneNum(req.phoneNum())) throw new CustomException(AuthErrorCode.PHONENUM_ALREADY_EXISTS);
 
         Users user = Users.builder()
                 .email(req.email())
                 .username(req.username())
                 .name(req.name())
-                .phoneNum(req.phoneNum())
                 .passwordHash(passwordEncoder.encode(req.password()))
                 .status(UserStatus.ADMIN_PENDING)
                 .build();

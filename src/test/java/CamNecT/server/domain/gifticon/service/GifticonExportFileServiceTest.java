@@ -10,12 +10,13 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class GifticonExportFileServiceTest {
 
     @TempDir Path tempDir;
 
-    private final GifticonExportFileService service = new GifticonExportFileService();
+    private final GifticonExportFileService service = new GifticonExportFileService(mock(GifticonEmailPolicy.class));
 
     @Test
     void writesThroughTemporaryFileAndMovesToFinalPath() throws Exception {

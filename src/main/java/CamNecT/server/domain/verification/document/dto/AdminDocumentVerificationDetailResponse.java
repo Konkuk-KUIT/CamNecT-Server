@@ -15,7 +15,7 @@ public record AdminDocumentVerificationDetailResponse(
 
         Long userId,
         String username,
-        String phoneNum,
+        String email,
         String name,
 
         String studentNo,

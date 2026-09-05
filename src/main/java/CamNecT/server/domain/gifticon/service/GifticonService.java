@@ -34,7 +34,7 @@ public class GifticonService {
 
     public GifticonHomeResponse home(Long userId, Sort sort) {
         long myPoint = pointService.getBalance(userId);
-        String myPhoneNum = pointService.getPhoneNum(userId);
+        String myEmail = pointService.getEmail(userId);
 
         List<GifticonProduct> products = switch (sort) {
             case PRICE_ASC -> productRepository.findAllByIsActiveTrueOrderByPricePointsAscIdDesc();
@@ -59,7 +59,7 @@ public class GifticonService {
                 ))
                 .toList();
 
-        return new GifticonHomeResponse(myPoint,myPhoneNum, views, lastSyncedAt);
+        return new GifticonHomeResponse(myPoint, myEmail, views, lastSyncedAt);
     }
 
     public GifticonProductDetailResponse productDetail(Long productId) {

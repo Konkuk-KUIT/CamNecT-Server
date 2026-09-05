@@ -62,7 +62,6 @@ class SignupServiceTest {
                     .email(user.getEmail())
                     .username(user.getUsername())
                     .name(user.getName())
-                    .phoneNum(user.getPhoneNum())
                     .passwordHash(user.getPasswordHash())
                     .status(user.getStatus())
                     .build();
@@ -96,7 +95,6 @@ class SignupServiceTest {
                 "username",
                 "password123!A",
                 "name",
-                "01012345678",
                 new VerifySignupEmailRequest.Agreements(serviceTerms, privacyTerms)
         );
     }

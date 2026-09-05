@@ -5,7 +5,7 @@ import java.util.List;
 
 public record GifticonHomeResponse(
         long myPoint,
-        String phoneNum,
+        String email,
         List<ProductView> products,
         LocalDateTime lastSyncedAt
 ) {

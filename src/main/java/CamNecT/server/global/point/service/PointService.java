@@ -183,9 +183,9 @@ public class PointService {
     }
 
     @Transactional(readOnly = true)
-    public String getPhoneNum(Long userId) {
+    public String getEmail(Long userId) {
         Users user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_TOKEN));
-        return user.getPhoneNum();
+        return user.getEmail();
     }
 }

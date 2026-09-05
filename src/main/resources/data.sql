@@ -17,10 +17,10 @@ VALUES
     (1, 'BA201', '경영학과', 'Business Administration', 1, true, NOW(), NOW());
 
 -- 4. Users (기존 유저 2명)
-INSERT INTO users (username, password_hash, name, phone_num, email, status, created_at, updated_at)
+INSERT INTO users (username, password_hash, name, email, status, created_at, updated_at)
 VALUES
-    ('user01@example.com', '1234', '김철수', '010-1234-5678', 'user01@example.com', 'ACTIVE', NOW(), NOW()),
-    ('tester03', '{bcrypt}$2a$10$8.UnVuG9HHgffUDAlk8qfOuVGkqRzgVymGe07xd001RIdL.mG2.J6', '박민수', '010-5555-4444', 'tester03@gmail.com', 'ACTIVE', NOW(), NOW());
+    ('user01@example.com', '1234', '김철수', 'user01@example.com', 'ACTIVE', NOW(), NOW()),
+    ('tester03', '{bcrypt}$2a$10$8.UnVuG9HHgffUDAlk8qfOuVGkqRzgVymGe07xd001RIdL.mG2.J6', '박민수', 'tester03@gmail.com', 'ACTIVE', NOW(), NOW());
 
 -- 5. UserProfile (두 유저 모두 Institution_id 1번 사용)
 INSERT INTO user_profile (user_id, bio, open_to_coffeechat, profile_image_url, student_no, year_level, institution_id, major_id)

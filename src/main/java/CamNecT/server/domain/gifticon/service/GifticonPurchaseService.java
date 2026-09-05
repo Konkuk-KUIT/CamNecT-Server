@@ -33,6 +33,7 @@ public class GifticonPurchaseService {
     private final UserRepository userRepository;
     private final PointService pointService;
     private final UserReportPenaltyService userReportPenaltyService;
+    private final GifticonEmailPolicy emailPolicy;
 
     @Transactional
     public GifticonPurchaseConfirmResponse confirm(Long userId, ConfirmGifticonPurchaseRequest req) {
@@ -78,6 +79,12 @@ public class GifticonPurchaseService {
             throw new CustomException(ErrorCode.INTERNAL_ERROR);
         }
 
+        String buyerEmail = emailPolicy.normalize(user.getEmail());
+        String recipientEmail = resolveRecipientEmail(req, buyerEmail);
+        if (!emailPolicy.isValid(recipientEmail)) {
+            throw new CustomException(GifticonErrorCode.INVALID_RECIPIENT_EMAIL);
+        }
+
         // 2) 구매요청 적재(스냅샷)
         GifticonPurchase purchase = GifticonPurchase.builder()
                 .user(user)
@@ -88,11 +95,10 @@ public class GifticonPurchaseService {
                 .totalPricePoints((int) expected)
 
                 .buyerName(user.getName())
-                .buyerPhone(user.getPhoneNum())  // Users에 없으면 null 처리/필드명 수정
-                .buyerEmail(user.getEmail())  // Users에 없으면 null 처리/필드명 수정
+                .buyerEmail(buyerEmail)
 
                 .recipientName(blankToNull(req.recipientName()))
-                .recipientPhone(blankToNull(req.recipientPhone()))
+                .recipientEmail(recipientEmail)
                 .giftMessage(blankToNull(req.giftMessage()))
                 .requestedAt(LocalDateTime.now())
                 .build();
@@ -115,12 +121,18 @@ public class GifticonPurchaseService {
         return (s == null || s.isBlank()) ? null : s;
     }
 
-    private static boolean matchesRequest(GifticonPurchase purchase, ConfirmGifticonPurchaseRequest req) {
+    private String resolveRecipientEmail(ConfirmGifticonPurchaseRequest req, String buyerEmail) {
+        String recipientEmail = emailPolicy.normalize(req.recipientEmail());
+        return recipientEmail == null ? emailPolicy.normalize(buyerEmail) : recipientEmail;
+    }
+
+    private boolean matchesRequest(GifticonPurchase purchase, ConfirmGifticonPurchaseRequest req) {
         return Objects.equals(purchase.getProduct().getId(), req.productId())
                 && Objects.equals(purchase.getQuantity(), req.quantity())
                 && Objects.equals(purchase.getTotalPricePoints(), req.spendPoints())
                 && Objects.equals(purchase.getRecipientName(), blankToNull(req.recipientName()))
-                && Objects.equals(purchase.getRecipientPhone(), blankToNull(req.recipientPhone()))
+                // 재시도 시 현재 계정 이메일이 아닌 구매 당시 스냅샷으로 비교한다.
+                && Objects.equals(purchase.getRecipientEmail(), resolveRecipientEmail(req, purchase.getBuyerEmail()))
                 && Objects.equals(purchase.getGiftMessage(), blankToNull(req.giftMessage()));
     }
 }
